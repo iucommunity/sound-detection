@@ -36,10 +36,10 @@ import yaml
 import time
 import threading
 import queue
+import json
+import asyncio
+import websockets
 from typing import Dict, Optional, Tuple
-import matplotlib.pyplot as plt
-import matplotlib.animation as animation
-from matplotlib.text import Text
 from collections import deque
 from dataclasses import dataclass, field
 
@@ -156,8 +156,8 @@ def _merge_close_tracks(track_data: list, merge_threshold_deg: float = 40.0) -> 
             merged.extend(class_tracks)
             continue
         
-        # Sort by confidence (descending)
-        sorted_tracks = sorted(class_tracks, key=lambda t: t["confidence"], reverse=True)
+        # Sort by confidence/intensity (descending)
+        sorted_tracks = sorted(class_tracks, key=lambda t: t.get("intensity", t.get("confidence", 0)), reverse=True)
         
         used = [False] * len(sorted_tracks)
         
@@ -177,7 +177,10 @@ def _merge_close_tracks(track_data: list, merge_threshold_deg: float = 40.0) -> 
                         continue
                     
                     for close_track in close_tracks:
-                        dist = abs(circular_distance_deg(close_track["theta_deg"], other_track["theta_deg"]))
+                        # Support both "theta_deg" and "direction" keys
+                        theta1 = close_track.get("theta_deg", close_track.get("direction", 0))
+                        theta2 = other_track.get("theta_deg", other_track.get("direction", 0))
+                        dist = abs(circular_distance_deg(theta1, theta2))
                         if dist <= merge_threshold_deg:
                             close_tracks.append(other_track)
                             used[j] = True
@@ -189,8 +192,8 @@ def _merge_close_tracks(track_data: list, merge_threshold_deg: float = 40.0) -> 
                 merged.append(track)
             else:
                 # Confidence-weighted circular mean
-                angles_rad = np.deg2rad([t["theta_deg"] for t in close_tracks])
-                confidences = np.array([t["confidence"] for t in close_tracks])
+                angles_rad = np.deg2rad([t.get("theta_deg", t.get("direction", 0)) for t in close_tracks])
+                confidences = np.array([t.get("intensity", t.get("confidence", 0)) for t in close_tracks])
                 
                 weights = confidences / (np.sum(confidences) + 1e-8)
                 mean_sin = np.sum(weights * np.sin(angles_rad))
@@ -198,16 +201,17 @@ def _merge_close_tracks(track_data: list, merge_threshold_deg: float = 40.0) -> 
                 mean_angle_rad = np.arctan2(mean_sin, mean_cos)
                 mean_angle_deg = wrap_angle_deg_0_360(np.rad2deg(mean_angle_rad))
                 
-                best_track = max(close_tracks, key=lambda t: t["confidence"])
+                best_track = max(close_tracks, key=lambda t: t.get("intensity", t.get("confidence", 0)))
                 avg_confidence = np.mean(confidences)
                 
                 merged.append({
-                    "id": best_track["id"],
-                    "theta_deg": mean_angle_deg,
-                    "confidence": avg_confidence,
-                    "age": best_track["age"],
+                    "id": best_track.get("id", 0),
+                    "direction": float(mean_angle_deg),
+                    "distance": float(avg_confidence),
+                    "intensity": float(avg_confidence),
                     "class_label": class_label,
-                    "is_active": best_track.get("is_active", True),
+                    "color": best_track.get("color", "#00d9ff"),
+                    "timestamp": best_track.get("timestamp", int(time.time() * 1000)),
                 })
     
     return merged
@@ -229,15 +233,29 @@ class ClassifiedDOAVisualizer:
         """Initialize the visualizer."""
         print("\n=== Classified DOA Track Visualization ===\n")
         
-        # Load pipeline config
-        self.pipe_cfg, self.audio_cfg = load_pipeline_config("sound_event/config/pipeline.yaml")
-        self.fs = self.pipe_cfg.sample_rate
+        # Initialize pipeline (may fail, but we still want WebSocket server)
+        self.pipe_cfg = None
+        self.audio_cfg = None
+        self.fs = 16000  # Default
+        self.pipeline = None
+        self.sos = None
         
-        # Create pipeline (will be reset per segment)
-        self.pipeline = DOAPipeline(self.pipe_cfg)
-        
-        # Load optional pre-filter
-        self.sos = self._load_pre_filter()
+        try:
+            # Load pipeline config
+            self.pipe_cfg, self.audio_cfg = load_pipeline_config("sound_event/config/pipeline.yaml")
+            self.fs = self.pipe_cfg.sample_rate
+            
+            # Create pipeline (will be reset per segment)
+            self.pipeline = DOAPipeline(self.pipe_cfg)
+            
+            # Load optional pre-filter
+            self.sos = self._load_pre_filter()
+            print("✓ Pipeline initialized successfully")
+        except Exception as e:
+            print(f"⚠ Warning: Pipeline initialization failed: {e}")
+            print("  WebSocket server will still start, but audio processing will be disabled")
+            import traceback
+            traceback.print_exc()
         
         # Queue for receiving audio segments with class labels
         self.audio_queue: queue.Queue[Tuple[np.ndarray, str]] = queue.Queue(maxsize=10)
@@ -253,6 +271,15 @@ class ClassifiedDOAVisualizer:
         
         # Processing thread
         self.processing_thread: Optional[threading.Thread] = None
+        
+        # WebSocket server
+        self.websocket_server = None
+        self.websocket_clients = set()
+        self.websocket_lock = threading.Lock()
+        self.websocket_port = 22222
+        # Try alternative ports if 22222 is in use
+        self.alternative_ports = [22223, 22224, 22225, 22226, 22227]
+        self.websocket_ready = threading.Event()
         
         print(f"Sample rate: {self.fs} Hz")
         print(f"Expected audio shape: (4, n_samples) where n_samples = {int(1.5 * self.fs)} for 1.5s")
@@ -301,6 +328,16 @@ class ClassifiedDOAVisualizer:
             logger.warning("Audio queue full, dropping segment")
     def _processing_loop(self):
         """Process audio segments from queue."""
+        if self.pipeline is None:
+            print("[Processing Thread] Pipeline not initialized, skipping audio processing")
+            while not self.stop_processing.is_set():
+                try:
+                    # Just drain the queue without processing
+                    self.audio_queue.get(timeout=0.1)
+                except queue.Empty:
+                    continue
+            return
+        
         while not self.stop_processing.is_set():
             try:
                 # Get audio segment with timeout
@@ -357,310 +394,354 @@ class ClassifiedDOAVisualizer:
                 return None
             return deepcopy(self._latest_snapshots)
     
+    async def _websocket_handler(self, websocket, path):
+        """Handle WebSocket client connections."""
+        try:
+            remote_addr = websocket.remote_address if hasattr(websocket, 'remote_address') else 'unknown'
+            with self.websocket_lock:
+                self.websocket_clients.add(websocket)
+                client_count = len(self.websocket_clients)
+            logger.info(f"WebSocket client connected from {remote_addr}. Total clients: {client_count}")
+            print(f"✓ WebSocket client connected from {remote_addr}. Total clients: {client_count}")
+            print(f"  Path: {path}")
+            
+            # Send initial empty data to confirm connection
+            try:
+                initial_message = json.dumps({
+                    "points": [],
+                    "timestamp": int(time.time() * 1000),
+                })
+                await websocket.send(initial_message)
+                print(f"  ✓ Sent initial message to client")
+            except Exception as e:
+                logger.error(f"Error sending initial message: {e}")
+                print(f"  ✗ Error sending initial message: {e}")
+            
+            # Keep connection alive
+            await websocket.wait_closed()
+        except websockets.exceptions.ConnectionClosed:
+            # Normal connection close
+            pass
+        except Exception as e:
+            logger.error(f"Error in WebSocket handler: {e}")
+            print(f"✗ Error in WebSocket handler: {e}")
+            import traceback
+            traceback.print_exc()
+        finally:
+            with self.websocket_lock:
+                self.websocket_clients.discard(websocket)
+                client_count = len(self.websocket_clients)
+            logger.info(f"WebSocket client disconnected. Total clients: {client_count}")
+            print(f"WebSocket client disconnected. Total clients: {client_count}")
+    
+    async def _broadcast_loop(self):
+        """Broadcast track data to all connected WebSocket clients."""
+        while not self.stop_processing.is_set():
+            try:
+                self.current_frame += 1
+                current_time = time.time()
+                snapshots = self.get_latest_snapshot()
+                
+                # Prepare track data
+                all_track_data = []
+                
+                if snapshots is not None and len(snapshots) > 0:
+                    for snapshot in snapshots:
+                        tracks = snapshot["tracks"]
+                        snapshot_time = snapshot["timestamp_sec"]
+                        snapshot_color = snapshot.get("color", "#00d9ff")
+                        
+                        # Update UI track states
+                        active_valid_track_ids = set()
+                        
+                        for track_dict in tracks:
+                            track_id = track_dict["id"]
+                            
+                            if not is_valid_track(track_dict):
+                                continue
+                            
+                            time_since_snapshot_ms = (current_time - snapshot_time) * 1000
+                            if time_since_snapshot_ms > MAX_TIME_SINCE_UPDATE_MS:
+                                continue
+                            
+                            theta_deg = track_dict["theta_deg"]
+                            confidence = track_dict["confidence"]
+                            age = track_dict["age"]
+                            class_label = track_dict.get("class_label", "unknown")
+                            
+                            active_valid_track_ids.add(track_id)
+                            
+                            # Update or create UI track state
+                            if track_id in self.ui_tracks:
+                                ui_track = self.ui_tracks[track_id]
+                                ui_track.is_active = True
+                                ui_track.hold_frames = 0
+                                ui_track.theta_history.append(theta_deg)
+                                ui_track.confidence_history.append(confidence)
+                                ui_track.age = age
+                                ui_track.class_label = class_label
+                            else:
+                                ui_track = ClassifiedTrack(
+                                    track_id=track_id,
+                                    theta_deg=theta_deg,
+                                    confidence=confidence,
+                                    age=age,
+                                    class_label=class_label,
+                                    last_update_frame=self.current_frame,
+                                )
+                                self.ui_tracks[track_id] = ui_track
+                        
+                        # Mark disappeared tracks
+                        for track_id, ui_track in list(self.ui_tracks.items()):
+                            if track_id not in active_valid_track_ids:
+                                if ui_track.is_active:
+                                    ui_track.is_active = False
+                                    ui_track.hold_frames = TRACK_HOLD_FRAMES
+                                else:
+                                    ui_track.hold_frames -= 1
+                                    if ui_track.hold_frames <= 0:
+                                        del self.ui_tracks[track_id]
+                                        continue
+                        
+                        # Prepare track data with UI smoothing
+                        track_data = []
+                        for ui_track in self.ui_tracks.values():
+                            # Apply UI-level smoothing
+                            if len(ui_track.theta_history) > 0:
+                                smoothed_theta = _compute_circular_mean(list(ui_track.theta_history))
+                            else:
+                                smoothed_theta = ui_track.theta_deg
+                            
+                            if len(ui_track.confidence_history) > 1:
+                                prev_mean = np.mean(list(ui_track.confidence_history)[:-1])
+                                smoothed_conf = 0.6 * ui_track.confidence_history[-1] + 0.4 * prev_mean
+                            elif len(ui_track.confidence_history) == 1:
+                                smoothed_conf = ui_track.confidence_history[0]
+                            else:
+                                smoothed_conf = ui_track.confidence
+                            
+                            if not ui_track.is_active:
+                                fade_factor = ui_track.hold_frames / TRACK_HOLD_FRAMES
+                                smoothed_conf *= fade_factor * 0.5
+                            
+                            if np.isnan(smoothed_theta) or np.isnan(smoothed_conf) or np.isinf(smoothed_theta) or np.isinf(smoothed_conf):
+                                continue
+                            
+                            smoothed_conf = np.clip(smoothed_conf, 0.0, 1.0)
+                            
+                            track_data.append({
+                                "id": ui_track.track_id,
+                                "direction": float(smoothed_theta),
+                                "distance": float(smoothed_conf),  # Use confidence as distance
+                                "intensity": float(smoothed_conf),
+                                "class_label": ui_track.class_label,
+                                "color": snapshot_color,
+                                "timestamp": int(time.time() * 1000),
+                            })
+                        
+                        # Merge visually close tracks
+                        if len(track_data) > 1:
+                            track_data = _merge_close_tracks(track_data, merge_threshold_deg=40.0)
+                        
+                        all_track_data.extend(track_data)
+                
+                # Convert to JSON and broadcast
+                message = json.dumps({
+                    "points": all_track_data,
+                    "timestamp": int(time.time() * 1000),
+                })
+                
+                # Broadcast to all connected clients
+                with self.websocket_lock:
+                    clients_to_send = list(self.websocket_clients)
+                
+                if clients_to_send:
+                    disconnected = set()
+                    for client in clients_to_send:
+                        try:
+                            await client.send(message)
+                        except Exception as e:
+                            logger.debug(f"Error sending to client: {e}")
+                            disconnected.add(client)
+                    
+                    # Remove disconnected clients
+                    with self.websocket_lock:
+                        self.websocket_clients -= disconnected
+                
+                # Wait before next broadcast
+                await asyncio.sleep(1.0 / UI_FPS)
+                
+            except Exception as e:
+                logger.error(f"Error in broadcast loop: {e}")
+                await asyncio.sleep(0.1)
+    
     def start(self):
-        """Start the visualization UI and processing thread."""
+        """Start the WebSocket server and processing thread."""
         # Start processing thread
         self.processing_thread = threading.Thread(target=self._processing_loop, daemon=True)
         self.processing_thread.start()
         
-        # Setup matplotlib
-        plt.style.use("default")
-        fig = plt.figure(figsize=(10, 10))
-        ax = fig.add_subplot(111, projection="polar")
+        # Start WebSocket server in a separate thread
+        def run_websocket_server():
+            try:
+                print("[WebSocket Thread] Creating new event loop...")
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                print("[WebSocket Thread] Event loop created")
+                
+                async def run_server():
+                    port_to_use = self.websocket_port
+                    ports_tried = []
+                    
+                    while True:
+                        try:
+                            # Test if port is available by trying to bind to it
+                            import socket
+                            test_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                            test_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                            try:
+                                test_socket.bind(('0.0.0.0', port_to_use))
+                                test_socket.close()
+                                # Port is available
+                            except OSError:
+                                # Port is in use - check if it's an HTTP server
+                                test_socket.close()
+                                print(f"⚠ Port {port_to_use} is already in use")
+                                try:
+                                    import urllib.request
+                                    response = urllib.request.urlopen(f'http://localhost:{port_to_use}', timeout=1)
+                                    print(f"  ⚠ Port {port_to_use} is running an HTTP server (not WebSocket)")
+                                    print(f"     This will cause 404 errors when trying to connect via WebSocket")
+                                except:
+                                    pass  # Not an HTTP server, might be something else
+                                
+                                if self.alternative_ports:
+                                    ports_tried.append(port_to_use)
+                                    port_to_use = self.alternative_ports.pop(0)
+                                    print(f"  → Trying port {port_to_use} instead...")
+                                    continue
+                                else:
+                                    print(f"✗ ERROR: Port {port_to_use} is in use and no alternatives available")
+                                    print(f"   Please stop the service using port {port_to_use} or change the port")
+                                    break
+                            
+                            # Create server with proper configuration
+                            print(f"Starting WebSocket server on port {port_to_use}...")
+                            try:
+                                server = await websockets.serve(
+                                    self._websocket_handler, 
+                                    "0.0.0.0",  # Accept connections from any interface
+                                    port_to_use,
+                                    ping_interval=20,
+                                    ping_timeout=10,
+                                    close_timeout=10
+                                )
+                            except Exception as bind_error:
+                                # If binding fails, try next port
+                                if "Address already in use" in str(bind_error) or "Only one usage" in str(bind_error):
+                                    print(f"  ⚠ Failed to bind to port {port_to_use}: {bind_error}")
+                                    if self.alternative_ports:
+                                        ports_tried.append(port_to_use)
+                                        port_to_use = self.alternative_ports.pop(0)
+                                        print(f"  → Trying port {port_to_use} instead...")
+                                        continue
+                                    else:
+                                        raise
+                                else:
+                                    raise
+                            
+                            self.websocket_port = port_to_use  # Update the port
+                            logger.info(f"WebSocket server started on port {port_to_use}")
+                            print(f"✓ WebSocket server started on port {port_to_use}")
+                            print(f"✓ Server listening on 0.0.0.0:{port_to_use}")
+                            print(f"✓ Connect from frontend: ws://localhost:{port_to_use}")
+                            print(f"✓ Server is ready to accept connections")
+                            self.websocket_ready.set()
+                            
+                            # Keep server running
+                            async with server:
+                                await self._broadcast_loop()
+                        except OSError as e:
+                            if "Address already in use" in str(e) or "Only one usage of each socket address" in str(e):
+                                ports_tried.append(port_to_use)
+                                # Try alternative ports
+                                if self.alternative_ports:
+                                    port_to_use = self.alternative_ports.pop(0)
+                                    print(f"⚠ Port {ports_tried[-1]} is in use, trying port {port_to_use}...")
+                                    continue
+                                else:
+                                    logger.error(f"All ports tried: {ports_tried}. Port {port_to_use} is already in use.")
+                                    print(f"✗ ERROR: All ports {ports_tried + [port_to_use]} are in use!")
+                                    print(f"   Please close any other application using these ports")
+                                    break
+                            else:
+                                logger.error(f"Error in WebSocket server: {e}")
+                                print(f"✗ Error in WebSocket server: {e}")
+                                import traceback
+                                traceback.print_exc()
+                                break
+                        except Exception as e:
+                            logger.error(f"Error in WebSocket server: {e}")
+                            print(f"✗ Error in WebSocket server: {e}")
+                            import traceback
+                            traceback.print_exc()
+                            break
+                
+                # Run the async server
+                print("[WebSocket Thread] Starting async server...")
+                loop.run_until_complete(run_server())
+            except KeyboardInterrupt:
+                print("\n[WebSocket Thread] Stopping WebSocket server...")
+            except Exception as e:
+                print(f"\n✗ [WebSocket Thread] ERROR: Failed to start WebSocket server: {e}")
+                logger.error(f"WebSocket server error: {e}")
+                import traceback
+                traceback.print_exc()
+                # Clear ready event to indicate failure
+                self.websocket_ready.clear()
+            finally:
+                try:
+                    # Cancel all tasks
+                    tasks = [t for t in asyncio.all_tasks(loop) if not t.done()]
+                    for task in tasks:
+                        task.cancel()
+                    if tasks:
+                        loop.run_until_complete(asyncio.gather(*tasks, return_exceptions=True))
+                except:
+                    pass
+                try:
+                    loop.close()
+                except:
+                    pass
+                self.stop_processing.set()
+                print("[WebSocket Thread] WebSocket server thread exiting.")
         
-        # Polar plot configuration
-        ax.set_theta_zero_location("E")   # 0° = east (right)
-        ax.set_theta_direction(1)         # counterclockwise
-        ax.set_title("DOA Tracks with Class Labels (Live)", fontsize=16, pad=20)
-        ax.set_ylim(0, 1.0)
-        ax.set_rticks([0.25, 0.5, 0.75, 1.0])
-        ax.set_rlabel_position(22.5)
+        websocket_thread = threading.Thread(target=run_websocket_server, daemon=True)
+        websocket_thread.start()
+        print(f"[Main Thread] WebSocket server thread started (daemon={websocket_thread.daemon}, thread_id={websocket_thread.ident})")
         
-        # Store plot elements
-        arrow_objects: list = []
-        text_objects: list[Text] = []
-        last_snapshot_frame = -1
+        # Wait for server to be ready (with timeout)
+        print("[Main Thread] Waiting for WebSocket server to start (timeout: 10 seconds)...")
+        if self.websocket_ready.wait(timeout=10.0):
+            print("\n" + "="*60)
+            print("✓ WebSocket server is ready and listening")
+            print(f"✓ Frontend should connect to: ws://localhost:{self.websocket_port}")
+            print("="*60 + "\n")
+        else:
+            print("\n" + "="*60)
+            print("⚠ WARNING: WebSocket server may not have started properly")
+            print("  Check for errors above or port conflicts")
+            print("  The server thread may have encountered an error")
+            print(f"  Thread alive: {websocket_thread.is_alive()}")
+            print("="*60 + "\n")
         
-        def update(_):
-            nonlocal arrow_objects, text_objects, last_snapshot_frame
-            self.current_frame += 1
-            
-            # Get latest snapshot
-            snapshots = self.get_latest_snapshot()
-            if snapshots is None or len(snapshots) == 0:
-                # Clear display
-                for arrow_obj in arrow_objects:
-                    arrow_obj.remove()
-                arrow_objects.clear()
-                for text_obj in text_objects:
-                    text_obj.remove()
-                text_objects.clear()
-                if self.current_frame % 100 == 0:
-                    ax.set_title("DOA Tracks with Class Labels - Waiting for audio...", fontsize=16, pad=20)
-                return []
-            current_time = time.time()
-            for snapshot in snapshots:
-                snapshot_frame = snapshot["frame_index"]
-                if snapshot_frame != last_snapshot_frame:
-                    last_snapshot_frame = snapshot_frame
-                
-                tracks = snapshot["tracks"]
-                snapshot_time = snapshot["timestamp_sec"]
-                
-                # Update UI track states
-                active_valid_track_ids = set()
-                
-                for track_dict in tracks:
-                    track_id = track_dict["id"]
-                    
-                    if not is_valid_track(track_dict):
-                        continue
-                    
-                    time_since_snapshot_ms = (current_time - snapshot_time) * 1000
-                    if time_since_snapshot_ms > MAX_TIME_SINCE_UPDATE_MS:
-                        continue
-                    
-                    theta_deg = track_dict["theta_deg"]
-                    confidence = track_dict["confidence"]
-                    age = track_dict["age"]
-                    class_label = track_dict.get("class_label", "unknown")
-                    
-                    active_valid_track_ids.add(track_id)
-                    
-                    # Update or create UI track state
-                    if track_id in self.ui_tracks:
-                        ui_track = self.ui_tracks[track_id]
-                        ui_track.is_active = True
-                        ui_track.hold_frames = 0
-                        ui_track.theta_history.append(theta_deg)
-                        ui_track.confidence_history.append(confidence)
-                        ui_track.age = age
-                        ui_track.class_label = class_label  # Update class label
-                    else:
-                        ui_track = ClassifiedTrack(
-                            track_id=track_id,
-                            theta_deg=theta_deg,
-                            confidence=confidence,
-                            age=age,
-                            class_label=class_label,
-                            last_update_frame=self.current_frame,
-                        )
-                        self.ui_tracks[track_id] = ui_track
-                
-                # Mark disappeared tracks
-                for track_id, ui_track in list(self.ui_tracks.items()):
-                    if track_id not in active_valid_track_ids:
-                        if ui_track.is_active:
-                            ui_track.is_active = False
-                            ui_track.hold_frames = TRACK_HOLD_FRAMES
-                        else:
-                            ui_track.hold_frames -= 1
-                            if ui_track.hold_frames <= 0:
-                                del self.ui_tracks[track_id]
-                                continue
-                
-                # Clear previous arrows and text
-                for arrow_obj in arrow_objects:
-                    arrow_obj.remove()
-                arrow_objects.clear()
-                for text_obj in text_objects:
-                    text_obj.remove()
-                text_objects.clear()
-                
-                if not self.ui_tracks:
-                    ax.set_title("DOA Tracks with Class Labels - No valid tracks", fontsize=16, pad=20)
-                    return []
-                
-                # Prepare track data with UI smoothing
-                track_data = []
-                for ui_track in self.ui_tracks.values():
-                    # Apply UI-level smoothing
-                    if len(ui_track.theta_history) > 0:
-                        smoothed_theta = _compute_circular_mean(list(ui_track.theta_history))
-                    else:
-                        smoothed_theta = ui_track.theta_deg
-                    
-                    if len(ui_track.confidence_history) > 1:
-                        prev_mean = np.mean(list(ui_track.confidence_history)[:-1])
-                        smoothed_conf = 0.6 * ui_track.confidence_history[-1] + 0.4 * prev_mean
-                    elif len(ui_track.confidence_history) == 1:
-                        smoothed_conf = ui_track.confidence_history[0]
-                    else:
-                        smoothed_conf = ui_track.confidence
-                    
-                    if not ui_track.is_active:
-                        fade_factor = ui_track.hold_frames / TRACK_HOLD_FRAMES
-                        smoothed_conf *= fade_factor * 0.5
-                    
-                    if np.isnan(smoothed_theta) or np.isnan(smoothed_conf) or np.isinf(smoothed_theta) or np.isinf(smoothed_conf):
-                        continue
-                    
-                    smoothed_conf = np.clip(smoothed_conf, 0.0, 1.0)
-                    
-                    track_data.append({
-                        "id": ui_track.track_id,
-                        "theta_deg": smoothed_theta,
-                        "confidence": smoothed_conf,
-                        "age": ui_track.age,
-                        "class_label": ui_track.class_label,
-                        "is_active": ui_track.is_active,
-                    })
-                
-                # Merge visually close tracks (within same class)
-                if len(track_data) > 1:
-                    prev_len = len(track_data)
-                    track_data = _merge_close_tracks(track_data, merge_threshold_deg=40.0)
-                    if len(track_data) < prev_len and len(track_data) > 1:
-                        track_data = _merge_close_tracks(track_data, merge_threshold_deg=40.0)
-                
-                if not track_data or len(track_data) == 0:
-                    ax.set_title("DOA Tracks with Class Labels - No valid tracks", fontsize=16, pad=20)
-                    return []
-                
-                # Convert to radians and validate
-                theta_rad = []
-                radii = []
-                colors = []
-                valid_tracks = []
-                
-                min_radius = 0.4
-                max_radius = 0.85
-                
-                for track in track_data:
-                    theta_deg = track["theta_deg"]
-                    confidence = track["confidence"]
-                    
-                    if np.isnan(theta_deg) or np.isnan(confidence) or np.isinf(theta_deg) or np.isinf(confidence):
-                        continue
-                    
-                    theta_rad_val = np.deg2rad(theta_deg)
-                    radius_val = min_radius + (max_radius - min_radius) * confidence
-                    
-                    if np.isnan(theta_rad_val) or np.isnan(radius_val):
-                        continue
-                    
-                    theta_rad.append(theta_rad_val)
-                    radii.append(radius_val)
-                    colors.append(snapshot["color"])
-                    valid_tracks.append(track)
-                
-                track_data = valid_tracks
-                
-                if not track_data or len(track_data) == 0:
-                    ax.set_title("DOA Tracks with Class Labels - No valid tracks", fontsize=16, pad=20)
-                    return []
-                
-                # Draw arrows and markers
-                for i, track in enumerate(track_data):
-                    theta_rad_i = theta_rad[i]
-                    radius_i = radii[i]
-                    color_i = colors[i]
-                    confidence_i = track["confidence"]
-                    class_label = track["class_label"]
-                    
-                    arrow_width = 2.0 + 3.0 * confidence_i
-                    alpha = 0.8 if track.get("is_active", True) else 0.4
-                    
-                    try:
-                        arrow_obj = ax.annotate(
-                            '',
-                            xy=(theta_rad_i, radius_i),
-                            xytext=(0, 0),
-                            arrowprops=dict(
-                                arrowstyle='->',
-                                lw=arrow_width,
-                                color=color_i,
-                                alpha=alpha,
-                                zorder=10,
-                            ),
-                        )
-                        arrow_objects.append(arrow_obj)
-                    except Exception as e:
-                        logger.debug(f"Failed to create arrow: {e}")
-                        continue
-                    
-                    try:
-                        marker_obj = ax.scatter(
-                            [theta_rad_i],
-                            [radius_i],
-                            s=[100 + 200 * confidence_i],
-                            c=[color_i],
-                            alpha=alpha * 0.9,
-                            edgecolors='black',
-                            linewidths=1.5,
-                            zorder=11,
-                        )
-                        arrow_objects.append(marker_obj)
-                    except Exception as e:
-                        logger.debug(f"Failed to create marker: {e}")
-                        continue
-                
-                # Add text labels with class information
-                label_offset_radius = 0.12
-                for i, track in enumerate(track_data):
-                    try:
-                        theta_rad_i = theta_rad[i]
-                        radius_i = radii[i]
-                        color_i = colors[i]
-                        class_label = track["class_label"]
-                        
-                        if np.isnan(theta_rad_i) or np.isnan(radius_i):
-                            continue
-                        
-                        label_radius = min(0.95, radius_i + label_offset_radius)
-                        # Format label: "ID1: 154° (87%) [human]"
-                        label = f"ID{track['id']}: {track['theta_deg']:.0f}° ({track['confidence']*100:.0f}%) [{class_label}]"
-                        
-                        text_obj = ax.text(
-                            theta_rad_i,
-                            label_radius,
-                            label,
-                            fontsize=10,
-                            ha='center',
-                            va='bottom',
-                            bbox=dict(
-                                boxstyle='round,pad=0.4',
-                                facecolor=color_i,
-                                alpha=0.85,
-                                edgecolor='black',
-                                linewidth=1.0,
-                            ),
-                            zorder=12,
-                            weight='bold',
-                        )
-                        text_objects.append(text_obj)
-                    except Exception as e:
-                        logger.debug(f"Failed to create text label: {e}")
-                        continue
-                
-                # Update title
-                ax.set_title(
-                    f"DOA Tracks with Class Labels - {len(track_data)} valid source(s)",
-                    fontsize=16,
-                    pad=20,
-                    weight='bold',
-                )
-                
-            return arrow_objects + text_objects
-        
-        # Start animation
+        # Keep main thread alive
         try:
-            interval_ms = int(1000 / UI_FPS)
-            ani = animation.FuncAnimation(
-                fig,
-                update,
-                interval=interval_ms,
-                blit=False,
-            )
-            print("Opening polar plot window...")
-            plt.show()
+            while not self.stop_processing.is_set():
+                time.sleep(0.1)
         except KeyboardInterrupt:
-            print("\nStopping visualization...")
-        except Exception as e:
-            print(f"Error in visualization: {e}")
-        finally:
+            print("\nStopping...")
             self.stop_processing.set()
-            print("Visualization stopped.")
     
     def stop(self):
         """Stop the visualizer."""
@@ -675,19 +756,36 @@ class ClassifiedDOAVisualizer:
 
 def main():
     """Standalone test function."""
-    visualizer = ClassifiedDOAVisualizer()
-    import librosa
-    audio, fs = librosa.load("record_20250826_185208.wav", sr=None, mono=False)
-    print(audio.shape)
-    visualizer.process_classified_audio([
-        {
-            'class_name': 'xxx',
-            'color': '#030293',
-            'active_names': [],
-            'audio': audio
-        }
-    ])
-    visualizer.start()
+    print("\n" + "="*60)
+    print("Starting ClassifiedDOAVisualizer WebSocket Server...")
+    print("="*60 + "\n")
+    
+    try:
+        visualizer = ClassifiedDOAVisualizer()
+        print("\n" + "="*60)
+        print("Calling visualizer.start()...")
+        print("="*60 + "\n")
+        visualizer.start()
+        
+        print("\n" + "="*60)
+        print("Server startup initiated.")
+        print("Keep this script running to maintain the WebSocket server.")
+        print("Press Ctrl+C to stop.")
+        print("="*60 + "\n")
+        
+        # CRITICAL: Keep the script running - otherwise daemon threads will be killed!
+        try:
+            while not visualizer.stop_processing.is_set():
+                time.sleep(1)
+        except KeyboardInterrupt:
+            print("\n\nStopping server...")
+            visualizer.stop()
+            print("Server stopped.")
+    except Exception as e:
+        print(f"\n✗ ERROR: Failed to start visualizer: {e}")
+        import traceback
+        traceback.print_exc()
+        return
 
 
 if __name__ == "__main__":

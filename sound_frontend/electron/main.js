@@ -21,7 +21,16 @@ function createWindow() {
     },
     frame: true,
     titleBarStyle: 'default',
+    show: false, // Don't show until ready
     // icon: join(__dirname, '../assets/icon.png'), // Uncomment if you have an icon
+  });
+
+  // Maximize window on startup
+  mainWindow.maximize();
+  
+  // Show window when ready to prevent visual flash
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show();
   });
 
   // Load the app

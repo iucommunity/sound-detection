@@ -29,14 +29,17 @@ const PointsHistory = ({ points }) => {
                     <div
                       className="w-4 h-4 rounded-full animate-pulse"
                       style={{
-                        backgroundColor: `rgba(0, 255, 136, ${point.intensity})`,
-                        boxShadow: `0 0 12px rgba(0, 255, 136, ${point.intensity * 0.9})`,
+                        backgroundColor: point.color || `rgba(0, 255, 136, ${point.intensity})`,
+                        boxShadow: `0 0 12px ${point.color || `rgba(0, 255, 136, ${point.intensity * 0.9})`}`,
                       }}
                     />
                     <div className="absolute inset-0 w-4 h-4 rounded-full bg-radar-primary animate-ping opacity-75"></div>
                   </div>
                   <span className="text-sm font-semibold text-gray-300 group-hover:text-radar-primary transition-colors">
                     Point #{point.id}
+                    {point.classLabel && (
+                      <span className="ml-2 text-xs text-gray-500">({point.classLabel})</span>
+                    )}
                   </span>
                 </div>
                 <span className="text-xs text-gray-500 font-mono">

@@ -1,29 +1,154 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Radar from './components/Radar';
 import ControlPanel from './components/ControlPanel';
 import PointsHistory from './components/PointsHistory';
-import { radarPoints as initialPoints } from './data/radarPoints';
 
 function App() {
-  const [points, setPoints] = useState(initialPoints);
+  const [points, setPoints] = useState([]);
   const [isRunning, setIsRunning] = useState(true);
+  const [isConnected, setIsConnected] = useState(false);
+  const wsRef = useRef(null);
+  const reconnectTimeoutRef = useRef(null);
 
-  // Simulate real-time updates
+  // WebSocket connection
   useEffect(() => {
-    if (!isRunning) return;
+    if (!isRunning) {
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+      setIsConnected(false);
+      return;
+    }
 
-    const interval = setInterval(() => {
-      setPoints((prevPoints) => {
-        // Update existing points with slight variations
-        return prevPoints.map((point) => ({
-          ...point,
-          distance: Math.max(0.1, Math.min(0.9, point.distance + (Math.random() - 0.5) * 0.05)),
-          intensity: Math.max(0.3, Math.min(1.0, point.intensity + (Math.random() - 0.5) * 0.1)),
-        }));
-      });
-    }, 100);
+    const connectWebSocket = () => {
+        // Try multiple ports in case 22222 is in use
+        const ports = [22222, 22223, 22224, 22225, 22226, 22227];
+      let currentPortIndex = 0;
+      
+      const tryConnect = (portIndex) => {
+        if (portIndex >= ports.length) {
+          console.error('✗ All ports tried, none available');
+          setIsConnected(false);
+          // Retry from beginning after 5 seconds
+          if (isRunning) {
+            reconnectTimeoutRef.current = setTimeout(() => {
+              connectWebSocket();
+            }, 5000);
+          }
+          return;
+        }
+        
+        const port = ports[portIndex];
+        const wsUrl = `ws://localhost:${port}`;
+        console.log(`Attempting to connect to ${wsUrl}...`);
+        
+        try {
+          const ws = new WebSocket(wsUrl);
 
-    return () => clearInterval(interval);
+          ws.onopen = () => {
+            console.log(`✓ WebSocket connected to ${wsUrl}`);
+            setIsConnected(true);
+            currentPortIndex = portIndex; // Remember successful port
+            if (reconnectTimeoutRef.current) {
+              clearTimeout(reconnectTimeoutRef.current);
+              reconnectTimeoutRef.current = null;
+            }
+          };
+
+          ws.onmessage = (event) => {
+            try {
+              const data = JSON.parse(event.data);
+              if (data.points && Array.isArray(data.points)) {
+                // Transform received data to match radar point format
+                const transformedPoints = data.points.map((point, index) => ({
+                  id: point.id || index + 1,
+                  direction: point.direction || point.theta_deg || 0,
+                  distance: point.distance || 0.5,
+                  intensity: point.intensity || point.confidence || 0.5,
+                  timestamp: point.timestamp || Date.now(),
+                  classLabel: point.class_label || 'unknown',
+                  color: point.color || '#00d9ff',
+                }));
+                setPoints(transformedPoints);
+                if (transformedPoints.length > 0) {
+                  console.log(`Received ${transformedPoints.length} point(s) from WebSocket`);
+                }
+              } else {
+                // No points, but keep radar visible (empty array is fine)
+                setPoints([]);
+              }
+            } catch (error) {
+              console.error('Error parsing WebSocket message:', error);
+              console.error('Raw message:', event.data);
+            }
+          };
+
+          ws.onerror = (error) => {
+            console.error(`✗ WebSocket error on port ${port}:`, error);
+            setIsConnected(false);
+          };
+
+          ws.onclose = (event) => {
+            console.log(`WebSocket disconnected from port ${port}`, event.code, event.reason);
+            setIsConnected(false);
+            wsRef.current = null;
+            
+            // If it was a successful connection that closed, try to reconnect to the same port
+            // Otherwise, try next port
+            if (event.code === 1006 && portIndex === currentPortIndex) {
+              // Connection was successful before, try same port
+              if (isRunning) {
+                console.log(`Attempting to reconnect to port ${port} in 2 seconds...`);
+                reconnectTimeoutRef.current = setTimeout(() => {
+                  tryConnect(portIndex);
+                }, 2000);
+              }
+            } else if (event.code === 1006 || event.code === 1002) {
+              // Connection failed, try next port
+              if (isRunning) {
+                console.log(`Trying next port...`);
+                setTimeout(() => {
+                  tryConnect(portIndex + 1);
+                }, 1000);
+              }
+            } else if (isRunning) {
+              // Other close codes, retry same port
+              reconnectTimeoutRef.current = setTimeout(() => {
+                tryConnect(portIndex);
+              }, 2000);
+            }
+          };
+
+          wsRef.current = ws;
+        } catch (error) {
+          console.error(`Error creating WebSocket on port ${port}:`, error);
+          setIsConnected(false);
+          // Try next port
+          if (isRunning) {
+            setTimeout(() => {
+              tryConnect(portIndex + 1);
+            }, 1000);
+          }
+        }
+      };
+      
+      // Start trying ports
+      tryConnect(currentPortIndex);
+    };
+
+    connectWebSocket();
+
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+    };
   }, [isRunning]);
 
   return (
@@ -60,18 +185,22 @@ function App() {
                 Sound Detection Radar
               </h1>
               <p className="text-sm text-gray-400 mt-1 flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-radar-primary animate-pulse"></span>
-                Real-time Direction of Arrival Visualization
+                <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-radar-primary animate-pulse' : 'bg-red-500'}`}></span>
+                {isConnected ? 'Real-time Direction of Arrival Visualization' : 'Connecting to WebSocket server...'}
               </p>
             </div>
           </div>
           <div className="flex items-center gap-6">
             <div className="flex items-center gap-3 px-4 py-2 bg-radar-surface/50 rounded-lg border border-radar-grid/30">
               <div className="relative">
-                <div className="w-3 h-3 rounded-full bg-radar-primary animate-pulse shadow-lg shadow-radar-primary/50"></div>
-                <div className="absolute inset-0 w-3 h-3 rounded-full bg-radar-primary animate-ping opacity-75"></div>
+                <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-radar-primary animate-pulse shadow-lg shadow-radar-primary/50' : 'bg-red-500'}`}></div>
+                {isConnected && (
+                  <div className="absolute inset-0 w-3 h-3 rounded-full bg-radar-primary animate-ping opacity-75"></div>
+                )}
               </div>
-              <span className="text-sm font-medium text-gray-300">Active</span>
+              <span className="text-sm font-medium text-gray-300">
+                {isConnected ? 'Connected' : 'Disconnected'}
+              </span>
             </div>
           </div>
         </div>

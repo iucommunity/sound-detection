@@ -355,6 +355,19 @@ const Radar = ({ points = [] }) => {
         const alpha = 0.7 + point.intensity * 0.3;
         const time = Date.now() / 1000;
         
+        // Use point color if available, otherwise use default cyan
+        const pointColor = point.color || '#00d9ff';
+        // Convert hex color to RGB
+        const hexToRgb = (hex) => {
+          const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+          return result ? {
+            r: parseInt(result[1], 16),
+            g: parseInt(result[2], 16),
+            b: parseInt(result[3], 16)
+          } : { r: 0, g: 217, b: 255 };
+        };
+        const rgb = hexToRgb(pointColor);
+        
         // Multiple pulse rings
         for (let i = 0; i < 3; i++) {
           const pulseOffset = (time * 2 + i * 0.5) % 2;
@@ -362,7 +375,7 @@ const Radar = ({ points = [] }) => {
           const pulseAlpha = (1 - pulseOffset) * alpha * 0.2;
           
           if (pulseAlpha > 0) {
-            ctx.strokeStyle = `rgba(0, 217, 255, ${pulseAlpha})`;
+            ctx.strokeStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${pulseAlpha})`;
             ctx.lineWidth = 2;
             ctx.beginPath();
             ctx.arc(screenX, screenY, pulseSize, 0, Math.PI * 2);
@@ -370,7 +383,7 @@ const Radar = ({ points = [] }) => {
           }
         }
 
-        // Outer glow with multiple layers - vibrant colors
+        // Outer glow with multiple layers - use point color
         const glowLayers = [
           { radius: baseSize * 3, alpha: alpha * 0.35 },
           { radius: baseSize * 2, alpha: alpha * 0.6 },
@@ -382,29 +395,29 @@ const Radar = ({ points = [] }) => {
             screenX, screenY, 0,
             screenX, screenY, radius
           );
-          pointGradient.addColorStop(0, `rgba(0, 217, 255, ${layerAlpha})`);
-          pointGradient.addColorStop(0.4, `rgba(124, 58, 237, ${layerAlpha * 0.7})`);
-          pointGradient.addColorStop(0.7, `rgba(0, 240, 255, ${layerAlpha * 0.4})`);
-          pointGradient.addColorStop(1, 'rgba(0, 217, 255, 0)');
+          pointGradient.addColorStop(0, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${layerAlpha})`);
+          pointGradient.addColorStop(0.4, `rgba(${Math.min(255, rgb.r + 30)}, ${Math.min(255, rgb.g + 30)}, ${Math.min(255, rgb.b + 30)}, ${layerAlpha * 0.7})`);
+          pointGradient.addColorStop(0.7, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${layerAlpha * 0.4})`);
+          pointGradient.addColorStop(1, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0)`);
 
           ctx.fillStyle = pointGradient;
           ctx.shadowBlur = radius * 0.5;
-          ctx.shadowColor = `rgba(0, 217, 255, ${layerAlpha * 0.6})`;
+          ctx.shadowColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${layerAlpha * 0.6})`;
           ctx.beginPath();
           ctx.arc(screenX, screenY, radius, 0, Math.PI * 2);
           ctx.fill();
           ctx.shadowBlur = 0;
         });
 
-        // Main point core with vibrant gradient
+        // Main point core with point color gradient
         const coreGradient = ctx.createRadialGradient(
           screenX, screenY, 0,
           screenX, screenY, baseSize
         );
         coreGradient.addColorStop(0, `rgba(255, 255, 255, ${alpha})`);
-        coreGradient.addColorStop(0.3, `rgba(0, 217, 255, ${alpha})`);
-        coreGradient.addColorStop(0.7, `rgba(124, 58, 237, ${alpha * 0.8})`);
-        coreGradient.addColorStop(1, `rgba(0, 240, 255, ${alpha * 0.4})`);
+        coreGradient.addColorStop(0.3, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`);
+        coreGradient.addColorStop(0.7, `rgba(${Math.max(0, rgb.r - 30)}, ${Math.max(0, rgb.g - 30)}, ${Math.max(0, rgb.b - 30)}, ${alpha * 0.8})`);
+        coreGradient.addColorStop(1, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha * 0.4})`);
         
         ctx.fillStyle = coreGradient;
         ctx.beginPath();
@@ -417,12 +430,12 @@ const Radar = ({ points = [] }) => {
         ctx.arc(screenX, screenY, baseSize * 0.35, 0, Math.PI * 2);
         ctx.fill();
         
-        // Direction line to center with cool color
-        ctx.strokeStyle = `rgba(0, 217, 255, ${alpha * 0.25})`;
+        // Direction line to center with point color
+        ctx.strokeStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha * 0.25})`;
         ctx.lineWidth = 1.2;
         ctx.setLineDash([6, 4]);
         ctx.shadowBlur = 3;
-        ctx.shadowColor = `rgba(0, 217, 255, ${alpha * 0.3})`;
+        ctx.shadowColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha * 0.3})`;
         ctx.beginPath();
         ctx.moveTo(centerX, centerY);
         ctx.lineTo(screenX, screenY);
