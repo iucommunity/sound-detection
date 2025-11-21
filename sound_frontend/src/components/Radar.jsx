@@ -1,7 +1,11 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useMemo } from 'react';
 import { polarToCartesian } from '../data/radarPoints';
+import { CLASS_LIST, getClassColor } from '../data/classColors';
 
-const Radar = ({ points = [], isRunning = true }) => {
+const Radar = ({ points = [], isRunning = true, classColors = {} }) => {
+  // REMOVED: classColorMap and legendColorMap - we don't need them anymore
+  // All colors come directly from getClassColor() which is the single source of truth
+
   const canvasRef = useRef(null);
   const animationFrameRef = useRef(null);
   const sweepProgressRef = useRef(0);
@@ -547,8 +551,10 @@ const Radar = ({ points = [], isRunning = true }) => {
         const alpha = Math.max(0.3, Math.min(1.0, 0.7 + (point.intensity || 0.5) * 0.3));
         const time = Date.now() / 1000;
         
-        // Use point color if available, otherwise use default cyan
-        const pointColor = point.color || '#00d9ff';
+        // Use getClassColor to ensure color matches class list and points history
+        // This is the single source of truth for all colors - always use getClassColor, never point.color
+        // This ensures colors are always up-to-date even if point.color is stale
+        const pointColor = getClassColor(point.classLabel);
         // Convert hex color to RGB
         const hexToRgb = (hex) => {
           const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
@@ -556,7 +562,7 @@ const Radar = ({ points = [], isRunning = true }) => {
             r: parseInt(result[1], 16),
             g: parseInt(result[2], 16),
             b: parseInt(result[3], 16)
-          } : { r: 0, g: 217, b: 255 };
+          } : { r: 0, g: 217, b: 255 }; // Default cyan RGB fallback
         };
         const rgb = hexToRgb(pointColor);
         
@@ -862,6 +868,32 @@ const Radar = ({ points = [], isRunning = true }) => {
               <div key={distance} className="flex items-center gap-2 text-gray-300">
                 <div className="w-8 h-px bg-radar-grid"></div>
                 <span className="text-radar-secondary">{label}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      
+      {/* Class Legend - positioned below distance scale with same width, uses actual colors from current points */}
+      <div className="absolute top-6 right-6 bg-radar-surface/80 backdrop-blur-md rounded-lg p-2.5 border border-radar-grid/50 shadow-xl" style={{ marginTop: '180px' }}>
+        <div className="text-xs font-mono space-y-1">
+          <div className="text-gray-400 mb-1.5 text-[10px]">CLASSES</div>
+          {CLASS_LIST.map((classItem) => {
+            // Use getClassColor as the single source of truth - same function used by radar points and points history
+            // This ensures perfect matching across all three locations
+            // Use getClassColor() instead of classItem.color to ensure it's always up-to-date
+            const actualColor = getClassColor(classItem.name);
+            
+            return (
+              <div key={classItem.name} className="flex items-center gap-2 text-gray-300">
+                <div
+                  className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                  style={{
+                    backgroundColor: actualColor,
+                    boxShadow: `0 0 6px ${actualColor}80`,
+                  }}
+                />
+                <span className="text-[10px] text-gray-300 font-medium">{classItem.name}</span>
               </div>
             );
           })}

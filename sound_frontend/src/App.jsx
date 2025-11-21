@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import Radar from './components/Radar';
 import ControlPanel from './components/ControlPanel';
 import PointsHistory from './components/PointsHistory';
+import { getClassColor } from './data/classColors';
 
 function App() {
   const [points, setPoints] = useState([]); // Current points for radar display
@@ -10,6 +11,7 @@ function App() {
   const [isConnected, setIsConnected] = useState(false);
   const wsRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
+  const [classColors, setClassColors] = useState({}); // Track actual colors used for each class
 
   // WebSocket connection
   useEffect(() => {
@@ -41,7 +43,7 @@ function App() {
         }
         
         const port = ports[portIndex];
-        const wsUrl = `ws://localhost:${port}`;
+        const wsUrl = `ws://192.168.130.210:${port}`;
         console.log(`Attempting to connect to ${wsUrl}...`);
         
         try {
@@ -77,20 +79,47 @@ function App() {
                     class_label: point.class_label,
                     color: point.color,
                     timestamp: point.timestamp,
+                    spl_db: point.spl_db,
                   });
                 });
               }
+              console.log('  - SPL DB:', data.points[0].spl_db);
               
               // Transform received data to match radar point format
-              const transformedPoints = data.points.map((point, index) => ({
-                id: point.id || index + 1,
-                direction: point.direction || point.theta_deg || 0,
-                distance: point.distance || 0.5,
-                intensity: point.intensity || point.confidence || 0.5,
-                timestamp: point.timestamp || Date.now(),
-                classLabel: point.class_label || 'unknown',
-                color: point.color || '#00d9ff',
-              }));
+              const newClassColors = {};
+              const transformedPoints = data.points.map((point, index) => {
+                const classLabel = point.class_label || 'unknown';
+                // Always use the class color from the class list (ignore backend color)
+                const pointColor = getClassColor(classLabel);
+                
+                // Track class colors for legend (use class colors from our list)
+                if (classLabel) {
+                  newClassColors[classLabel] = pointColor;
+                  // Also store with lowercase for case-insensitive matching
+                  newClassColors[classLabel.toLowerCase()] = pointColor;
+                  // Also store with capitalized first letter
+                  const capitalized = classLabel.charAt(0).toUpperCase() + classLabel.slice(1).toLowerCase();
+                  newClassColors[capitalized] = pointColor;
+                }
+                
+                return {
+                  id: point.id || index + 1,
+                  direction: point.direction || point.theta_deg || 0,
+                  distance: point.distance || 0.5,
+                  intensity: point.intensity || point.confidence || 0.5,
+                  timestamp: point.timestamp || Date.now(),
+                  classLabel: classLabel,
+                  color: pointColor, // Use class color from class list
+                };
+              });
+              
+              // Update class colors state once with all collected colors
+              if (Object.keys(newClassColors).length > 0) {
+                setClassColors(prev => ({
+                  ...prev,
+                  ...newClassColors
+                }));
+              }
               
               // Update current points for radar display
               setPoints(transformedPoints);
@@ -111,16 +140,17 @@ function App() {
                   
                   // Add new points that have never been seen before
                   if (newPoints.length > 0) {
-                    // Combine updated history with new points, sorted by timestamp (newest first)
-                    const combinedHistory = [...newPoints, ...updatedHistory].sort((a, b) => 
-                      new Date(b.timestamp) - new Date(a.timestamp)
-                    );
+                    // Combine updated history with new points
+                    const combinedHistory = [...newPoints, ...updatedHistory];
+                    // ALWAYS sort by timestamp (newest first)
+                    combinedHistory.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
                     console.log(`✓ Added ${newPoints.length} new point(s) to history (total: ${combinedHistory.length})`);
                     return combinedHistory;
                   }
                   
-                  // No new points, just return updated history
-                  return updatedHistory;
+                  // No new points, but still sort by timestamp (newest first)
+                  const sortedHistory = [...updatedHistory].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                  return sortedHistory;
                 });
                 
                 console.log(`✓ Processed ${transformedPoints.length} point(s) and updated radar display`);
@@ -269,7 +299,7 @@ function App() {
 
         {/* Radar View */}
         <div className="flex-1 flex items-center justify-center p-8 min-h-0 relative">
-          <Radar points={points} isRunning={isRunning} />
+          <Radar points={points} isRunning={isRunning} classColors={classColors} />
         </div>
 
         {/* Right Panel - Control Panel */}

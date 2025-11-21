@@ -1,6 +1,14 @@
 import React from 'react';
+import { getClassColor } from '../data/classColors';
 
 const PointsHistory = ({ points }) => {
+  // Sort points by timestamp (newest first) to ensure latest points are at the top
+  const sortedPoints = [...points].sort((a, b) => {
+    const timeA = new Date(a.timestamp || 0).getTime();
+    const timeB = new Date(b.timestamp || 0).getTime();
+    return timeB - timeA; // Newest first
+  });
+
   return (
     <div className="h-full flex flex-col p-6 space-y-4 overflow-y-auto">
       {/* Header */}
@@ -13,13 +21,13 @@ const PointsHistory = ({ points }) => {
 
       {/* Points List */}
       <div className="space-y-2 flex-1 overflow-y-auto pr-2 custom-scrollbar">
-        {points.length === 0 ? (
+        {sortedPoints.length === 0 ? (
           <div className="text-center py-8 text-gray-500 text-sm">
             No points detected
           </div>
         ) : (
-          // Show all points - no filtering
-          points.map((point, index) => (
+          // Show all points sorted by time (newest first)
+          sortedPoints.map((point, index) => (
             <div
               key={point.id || `point-${index}`}
               className="p-4 bg-gradient-to-br from-radar-surface/60 to-radar-surface/40 rounded-xl border border-radar-grid/40 hover:border-radar-primary/50 transition-all duration-300 shadow-md hover:shadow-lg hover:shadow-radar-primary/10 group"
@@ -27,20 +35,25 @@ const PointsHistory = ({ points }) => {
               <div className="flex justify-between items-start mb-3">
                 <div className="flex items-center gap-3">
                   <div className="relative">
-                    <div
-                      className="w-4 h-4 rounded-full animate-pulse"
-                      style={{
-                        backgroundColor: point.color || `rgba(0, 255, 136, ${point.intensity})`,
-                        boxShadow: `0 0 12px ${point.color || `rgba(0, 255, 136, ${point.intensity * 0.9})`}`,
-                      }}
-                    />
+                    {(() => {
+                      // Use getClassColor to ensure color matches radar and legend
+                      // Always use getClassColor - never fall back to point.color to ensure colors stay updated
+                      const pointColor = getClassColor(point.classLabel);
+                      
+                      return (
+                        <div
+                          className="w-4 h-4 rounded-full animate-pulse"
+                          style={{
+                            backgroundColor: pointColor,
+                            boxShadow: `0 0 12px ${pointColor}80`,
+                          }}
+                        />
+                      );
+                    })()}
                     <div className="absolute inset-0 w-4 h-4 rounded-full bg-radar-primary animate-ping opacity-75"></div>
                   </div>
                   <span className="text-sm font-semibold text-gray-300 group-hover:text-radar-primary transition-colors">
-                    Point #{point.id}
-                    {point.classLabel && (
-                      <span className="ml-2 text-xs text-gray-500">({point.classLabel})</span>
-                    )}
+                    {point.classLabel || `Point #${point.id}`}
                   </span>
                 </div>
                 <span className="text-xs text-gray-500 font-mono">
