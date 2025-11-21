@@ -40,9 +40,6 @@ import json
 import asyncio
 import websockets
 from typing import Dict, Optional, Tuple
-import matplotlib.pyplot as plt
-import matplotlib.animation as animation
-from matplotlib.text import Text
 from collections import deque
 from dataclasses import dataclass, field
 
@@ -557,322 +554,173 @@ class ClassifiedDOAVisualizer:
         else:
             print("⚠ WebSocket server may not have started properly")
         
-        # Setup matplotlib
-        plt.style.use("default")
-        fig = plt.figure(figsize=(10, 10))
-        ax = fig.add_subplot(111, projection="polar")
-        
-        # Polar plot configuration
-        ax.set_theta_zero_location("E")   # 0° = east (right)
-        ax.set_theta_direction(1)         # counterclockwise
-        ax.set_title("DOA Tracks with Class Labels (Live)", fontsize=16, pad=20)
-        ax.set_ylim(0, 1.0)
-        ax.set_rticks([0.25, 0.5, 0.75, 1.0])
-        ax.set_rlabel_position(22.5)
-        
-        # Store plot elements
-        arrow_objects: list = []
-        text_objects: list[Text] = []
-        last_snapshot_frame = -1
-        
-        def update(_):
-            nonlocal arrow_objects, text_objects, last_snapshot_frame
-            self.current_frame += 1
-            
-            # Get latest snapshot
-            snapshots = self.get_latest_snapshot()
-            if snapshots is None or len(snapshots) == 0:
-                # Clear display
-                for arrow_obj in arrow_objects:
-                    arrow_obj.remove()
-                arrow_objects.clear()
-                for text_obj in text_objects:
-                    text_obj.remove()
-                text_objects.clear()
-                if self.current_frame % 100 == 0:
-                    ax.set_title("DOA Tracks with Class Labels - Waiting for audio...", fontsize=16, pad=20)
-                return []
-            current_time = time.time()
-            for snapshot in snapshots:
-                snapshot_frame = snapshot["frame_index"]
-                if snapshot_frame != last_snapshot_frame:
-                    last_snapshot_frame = snapshot_frame
-                
-                tracks = snapshot["tracks"]
-                snapshot_time = snapshot["timestamp_sec"]
-                
-                # Update UI track states
-                active_valid_track_ids = set()
-                
-                for track_dict in tracks:
-                    track_id = track_dict["id"]
+        # Start track processing loop (replaces matplotlib animation)
+        def track_processing_loop():
+            """Process tracks and update WebSocket data without matplotlib visualization."""
+            while not self.stop_processing.is_set():
+                try:
+                    self.current_frame += 1
+                    current_time = time.time()
                     
-                    if not is_valid_track(track_dict):
+                    # Get latest snapshot
+                    snapshots = self.get_latest_snapshot()
+                    if snapshots is None or len(snapshots) == 0:
+                        # Clear WebSocket data when no snapshots
+                        with self.latest_track_data_lock:
+                            self.latest_track_data = []
+                        time.sleep(1.0 / UI_FPS)
                         continue
                     
-                    time_since_snapshot_ms = (current_time - snapshot_time) * 1000
-                    if time_since_snapshot_ms > MAX_TIME_SINCE_UPDATE_MS:
-                        continue
-                    
-                    theta_deg = track_dict["theta_deg"]
-                    confidence = track_dict["confidence"]
-                    age = track_dict["age"]
-                    distance_m = track_dict.get("distance_m", None)
-                    spl_db = track_dict.get("spl_db", None)
-                    class_label = track_dict.get("class_label", "unknown")
-                    
-                    active_valid_track_ids.add(track_id)
-                    
-                    # Update or create UI track state
-                    if track_id in self.ui_tracks:
-                        ui_track = self.ui_tracks[track_id]
-                        ui_track.is_active = True
-                        ui_track.hold_frames = 0
-                        ui_track.theta_history.append(theta_deg)
-                        ui_track.confidence_history.append(confidence)
-                        ui_track.age = age
-                        ui_track.class_label = class_label
-                        ui_track.distance_m = distance_m
-                        ui_track.spl_db = spl_db
-                    else:
-                        ui_track = ClassifiedTrack(
-                            track_id=track_id,
-                            theta_deg=theta_deg,
-                            confidence=confidence,
-                            age=age,
-                            class_label=class_label,
-                            last_update_frame=self.current_frame,
-                            distance_m = distance_m,
-                            spl_db = spl_db
-                        )
-                        self.ui_tracks[track_id] = ui_track
-                
-                # Mark disappeared tracks
-                for track_id, ui_track in list(self.ui_tracks.items()):
-                    if track_id not in active_valid_track_ids:
-                        if ui_track.is_active:
-                            ui_track.is_active = False
-                            ui_track.hold_frames = TRACK_HOLD_FRAMES
-                        else:
-                            ui_track.hold_frames -= 1
-                            if ui_track.hold_frames <= 0:
-                                del self.ui_tracks[track_id]
+                    for snapshot in snapshots:
+                        tracks = snapshot["tracks"]
+                        snapshot_time = snapshot["timestamp_sec"]
+                        
+                        # Update UI track states
+                        active_valid_track_ids = set()
+                        
+                        for track_dict in tracks:
+                            track_id = track_dict["id"]
+                            
+                            if not is_valid_track(track_dict):
                                 continue
-                
-                # Clear previous arrows and text
-                for arrow_obj in arrow_objects:
-                    arrow_obj.remove()
-                arrow_objects.clear()
-                for text_obj in text_objects:
-                    text_obj.remove()
-                text_objects.clear()
-                
-                if not self.ui_tracks:
-                    ax.set_title("DOA Tracks with Class Labels - No valid tracks", fontsize=16, pad=20)
-                    # Clear WebSocket data when no tracks
-                    with self.latest_track_data_lock:
-                        self.latest_track_data = []
-                    return []
-                
-                # Prepare track data with UI smoothing
-                track_data = []
-                for ui_track in self.ui_tracks.values():
-                    # Apply UI-level smoothing
-                    if len(ui_track.theta_history) > 0:
-                        smoothed_theta = _compute_circular_mean(list(ui_track.theta_history))
-                    else:
-                        smoothed_theta = ui_track.theta_deg
-                    
-                    if len(ui_track.confidence_history) > 1:
-                        prev_mean = np.mean(list(ui_track.confidence_history)[:-1])
-                        smoothed_conf = 0.6 * ui_track.confidence_history[-1] + 0.4 * prev_mean
-                    elif len(ui_track.confidence_history) == 1:
-                        smoothed_conf = ui_track.confidence_history[0]
-                    else:
-                        smoothed_conf = ui_track.confidence
-                    
-                    if not ui_track.is_active:
-                        fade_factor = ui_track.hold_frames / TRACK_HOLD_FRAMES
-                        smoothed_conf *= fade_factor * 0.5
-                    
-                    if np.isnan(smoothed_theta) or np.isnan(smoothed_conf) or np.isinf(smoothed_theta) or np.isinf(smoothed_conf):
-                        continue
-                    
-                    smoothed_conf = np.clip(smoothed_conf, 0.0, 1.0)
-                    
-                    track_data.append({
-                        "id": ui_track.track_id,
-                        "theta_deg": smoothed_theta,
-                        "distance_m": ui_track.distance_m,
-                        "spl_db": ui_track.spl_db,
-                        "confidence": smoothed_conf,
-                        "age": ui_track.age,
-                        "class_label": ui_track.class_label,
-                        "is_active": ui_track.is_active,
-                    })
-                
-                # Merge visually close tracks (within same class)
-                if len(track_data) > 1:
-                    prev_len = len(track_data)
-                    track_data = _merge_close_tracks(track_data, merge_threshold_deg=40.0)
-                    if len(track_data) < prev_len and len(track_data) > 1:
-                        track_data = _merge_close_tracks(track_data, merge_threshold_deg=40.0)
-                
-                if not track_data or len(track_data) == 0:
-                    ax.set_title("DOA Tracks with Class Labels - No valid tracks", fontsize=16, pad=20)
-                    # Clear WebSocket data when no tracks
-                    with self.latest_track_data_lock:
-                        self.latest_track_data = []
-                    return []
-                
-                # Convert to radians and validate
-                theta_rad = []
-                radii = []
-                colors = []
-                valid_tracks = []
-                
-                min_radius = 0.4
-                max_radius = 0.85
-                
-                for track in track_data:
-                    theta_deg = track["theta_deg"]
-                    confidence = track["confidence"]
-                    
-                    if np.isnan(theta_deg) or np.isnan(confidence) or np.isinf(theta_deg) or np.isinf(confidence):
-                        continue
-                    
-                    theta_rad_val = np.deg2rad(theta_deg)
-                    radius_val = min_radius + (max_radius - min_radius) * confidence
-                    
-                    if np.isnan(theta_rad_val) or np.isnan(radius_val):
-                        continue
-                    
-                    theta_rad.append(theta_rad_val)
-                    radii.append(radius_val)
-                    colors.append(snapshot["color"])
-                    valid_tracks.append(track)
-                
-                track_data = valid_tracks
-                
-                # Store track data for WebSocket broadcasting (with snapshot color)
-                with self.latest_track_data_lock:
-                    self.latest_track_data = track_data
-                    self.latest_snapshot_color = snapshot.get("color", "#00d9ff")
-                
-                if not track_data or len(track_data) == 0:
-                    ax.set_title("DOA Tracks with Class Labels - No valid tracks", fontsize=16, pad=20)
-                    return []
-                
-                # Draw arrows and markers
-                for i, track in enumerate(track_data):
-                    theta_rad_i = theta_rad[i]
-                    radius_i = radii[i]
-                    color_i = colors[i]
-                    confidence_i = track["confidence"]
-                    class_label = track["class_label"]
-                    
-                    arrow_width = 2.0 + 3.0 * confidence_i
-                    alpha = 0.8 if track.get("is_active", True) else 0.4
-                    
-                    try:
-                        arrow_obj = ax.annotate(
-                            '',
-                            xy=(theta_rad_i, radius_i),
-                            xytext=(0, 0),
-                            arrowprops=dict(
-                                arrowstyle='->',
-                                lw=arrow_width,
-                                color=color_i,
-                                alpha=alpha,
-                                zorder=10,
-                            ),
-                        )
-                        arrow_objects.append(arrow_obj)
-                    except Exception as e:
-                        logger.debug(f"Failed to create arrow: {e}")
-                        continue
-                    
-                    try:
-                        marker_obj = ax.scatter(
-                            [theta_rad_i],
-                            [radius_i],
-                            s=[100 + 200 * confidence_i],
-                            c=[color_i],
-                            alpha=alpha * 0.9,
-                            edgecolors='black',
-                            linewidths=1.5,
-                            zorder=11,
-                        )
-                        arrow_objects.append(marker_obj)
-                    except Exception as e:
-                        logger.debug(f"Failed to create marker: {e}")
-                        continue
-                
-                # Add text labels with class information
-                label_offset_radius = 0.12
-                for i, track in enumerate(track_data):
-                    try:
-                        theta_rad_i = theta_rad[i]
-                        radius_i = radii[i]
-                        color_i = colors[i]
-                        class_label = track["class_label"]
-                        distance_i = track["distance_m"]
-                        spl_db_i = track["spl_db"]
-                        if np.isnan(theta_rad_i) or np.isnan(radius_i) or np.isnan(distance_i) or np.isnan(spl_db_i):
+                            
+                            time_since_snapshot_ms = (current_time - snapshot_time) * 1000
+                            if time_since_snapshot_ms > MAX_TIME_SINCE_UPDATE_MS:
+                                continue
+                            
+                            theta_deg = track_dict["theta_deg"]
+                            confidence = track_dict["confidence"]
+                            age = track_dict["age"]
+                            distance_m = track_dict.get("distance_m", None)
+                            spl_db = track_dict.get("spl_db", None)
+                            class_label = track_dict.get("class_label", "unknown")
+                            
+                            active_valid_track_ids.add(track_id)
+                            
+                            # Update or create UI track state
+                            if track_id in self.ui_tracks:
+                                ui_track = self.ui_tracks[track_id]
+                                ui_track.is_active = True
+                                ui_track.hold_frames = 0
+                                ui_track.theta_history.append(theta_deg)
+                                ui_track.confidence_history.append(confidence)
+                                ui_track.age = age
+                                ui_track.class_label = class_label
+                                ui_track.distance_m = distance_m
+                                ui_track.spl_db = spl_db
+                            else:
+                                ui_track = ClassifiedTrack(
+                                    track_id=track_id,
+                                    theta_deg=theta_deg,
+                                    confidence=confidence,
+                                    age=age,
+                                    class_label=class_label,
+                                    last_update_frame=self.current_frame,
+                                    distance_m=distance_m,
+                                    spl_db=spl_db
+                                )
+                                self.ui_tracks[track_id] = ui_track
+                        
+                        # Mark disappeared tracks
+                        for track_id, ui_track in list(self.ui_tracks.items()):
+                            if track_id not in active_valid_track_ids:
+                                if ui_track.is_active:
+                                    ui_track.is_active = False
+                                    ui_track.hold_frames = TRACK_HOLD_FRAMES
+                                else:
+                                    ui_track.hold_frames -= 1
+                                    if ui_track.hold_frames <= 0:
+                                        del self.ui_tracks[track_id]
+                                        continue
+                        
+                        if not self.ui_tracks:
+                            # Clear WebSocket data when no tracks
+                            with self.latest_track_data_lock:
+                                self.latest_track_data = []
                             continue
-                        label_radius = min(0.95, radius_i + label_offset_radius)
-                        # Format label: "ID1: 154° (87%) [human]"
-                        label = f"ID{track['id']}: {track['theta_deg']:.0f}° ({track['confidence']*100:.0f}%) {distance_i:.1f}m {spl_db_i:.1f}dB [{class_label}]"
-                        text_obj = ax.text(
-                            theta_rad_i,
-                            label_radius,
-                            label,
-                            fontsize=10,
-                            ha='center',
-                            va='bottom',
-                            bbox=dict(
-                                boxstyle='round,pad=0.4',
-                                facecolor=color_i,
-                                alpha=0.85,
-                                edgecolor='black',
-                                linewidth=1.0,
-                            ),
-                            zorder=12,
-                            weight='bold',
-                        )
-                        text_objects.append(text_obj)
-                    except Exception as e:
-                        logger.debug(f"Failed to create text label: {e}")
-                        continue
-                
-                # Update title
-                ax.set_title(
-                    f"DOA Tracks with Class Labels - {len(track_data)} valid source(s)",
-                    fontsize=16,
-                    pad=20,
-                    weight='bold',
-                )
-                
-            return arrow_objects + text_objects
+                        
+                        # Prepare track data with UI smoothing
+                        track_data = []
+                        for ui_track in self.ui_tracks.values():
+                            # Apply UI-level smoothing
+                            if len(ui_track.theta_history) > 0:
+                                smoothed_theta = _compute_circular_mean(list(ui_track.theta_history))
+                            else:
+                                smoothed_theta = ui_track.theta_deg
+                            
+                            if len(ui_track.confidence_history) > 1:
+                                prev_mean = np.mean(list(ui_track.confidence_history)[:-1])
+                                smoothed_conf = 0.6 * ui_track.confidence_history[-1] + 0.4 * prev_mean
+                            elif len(ui_track.confidence_history) == 1:
+                                smoothed_conf = ui_track.confidence_history[0]
+                            else:
+                                smoothed_conf = ui_track.confidence
+                            
+                            if not ui_track.is_active:
+                                fade_factor = ui_track.hold_frames / TRACK_HOLD_FRAMES
+                                smoothed_conf *= fade_factor * 0.5
+                            
+                            if np.isnan(smoothed_theta) or np.isnan(smoothed_conf) or np.isinf(smoothed_theta) or np.isinf(smoothed_conf):
+                                continue
+                            
+                            smoothed_conf = np.clip(smoothed_conf, 0.0, 1.0)
+                            
+                            track_data.append({
+                                "id": ui_track.track_id,
+                                "theta_deg": smoothed_theta,
+                                "distance_m": ui_track.distance_m,
+                                "spl_db": ui_track.spl_db,
+                                "confidence": smoothed_conf,
+                                "age": ui_track.age,
+                                "class_label": ui_track.class_label,
+                                "is_active": ui_track.is_active,
+                            })
+                        
+                        # Merge visually close tracks (within same class)
+                        if len(track_data) > 1:
+                            prev_len = len(track_data)
+                            track_data = _merge_close_tracks(track_data, merge_threshold_deg=40.0)
+                            if len(track_data) < prev_len and len(track_data) > 1:
+                                track_data = _merge_close_tracks(track_data, merge_threshold_deg=40.0)
+                        
+                        # Filter out invalid tracks
+                        valid_tracks = []
+                        for track in track_data:
+                            theta_deg = track["theta_deg"]
+                            confidence = track["confidence"]
+                            
+                            if np.isnan(theta_deg) or np.isnan(confidence) or np.isinf(theta_deg) or np.isinf(confidence):
+                                continue
+                            
+                            valid_tracks.append(track)
+                        
+                        track_data = valid_tracks
+                        
+                        # Store track data for WebSocket broadcasting (with snapshot color)
+                        with self.latest_track_data_lock:
+                            self.latest_track_data = track_data
+                            self.latest_snapshot_color = snapshot.get("color", "#00d9ff")
+                    
+                    # Wait before next update
+                    time.sleep(1.0 / UI_FPS)
+                    
+                except Exception as e:
+                    logger.error(f"Error in track processing loop: {e}")
+                    time.sleep(0.1)
         
-        # Start animation
+        # Start track processing thread
+        track_processing_thread = threading.Thread(target=track_processing_loop, daemon=True)
+        track_processing_thread.start()
+        print("Track processing thread started")
+        
+        # Keep main thread alive
         try:
-            interval_ms = int(1000 / UI_FPS)
-            ani = animation.FuncAnimation(
-                fig,
-                update,
-                interval=interval_ms,
-                blit=False,
-            )
-            print("Opening polar plot window...")
-            plt.show()
+            while not self.stop_processing.is_set():
+                time.sleep(0.1)
         except KeyboardInterrupt:
-            print("\nStopping visualization...")
-        except Exception as e:
-            print(f"Error in visualization: {e}")
-        finally:
+            print("\nStopping...")
             self.stop_processing.set()
-            print("Visualization stopped.")
+            print("Stopped.")
     
     def stop(self):
         """Stop the visualizer."""
