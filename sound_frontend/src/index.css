@@ -1,0 +1,32 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  
+  body {
+    @apply bg-radar-background text-white font-sans antialiased;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+  }
+
+  #root {
+    width: 100vw;
+    height: 100vh;
+  }
+}
+
+@layer utilities {
+  .text-shadow {
+    text-shadow: 0 0 10px rgba(0, 255, 136, 0.5);
+  }
+  
+  .text-shadow-strong {
+    text-shadow: 0 0 20px rgba(0, 255, 136, 0.8);
+  }
+}
+
