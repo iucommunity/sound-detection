@@ -26,9 +26,9 @@ function App() {
   }, [isRunning]);
 
   return (
-    <div className="w-full h-full flex flex-col bg-gradient-to-br from-radar-background via-radar-surface to-radar-background">
+    <div className="w-full h-full flex flex-col bg-gradient-to-br from-radar-background via-radar-surface to-radar-background" style={{ minHeight: '100vh' }}>
       {/* Header */}
-      <header className="px-8 py-4 border-b border-radar-grid/50 bg-radar-surface/30 backdrop-blur-sm">
+      <header className="px-8 py-4 border-b border-radar-grid/50 bg-radar-surface/30 backdrop-blur-sm flex-shrink-0">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-radar-primary text-shadow">
@@ -48,9 +48,9 @@ function App() {
       </header>
 
       {/* Main Content */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden min-h-0">
         {/* Radar View */}
-        <div className="flex-1 flex items-center justify-center p-8">
+        <div className="flex-1 flex items-center justify-center p-8 min-h-0">
           <Radar points={points} />
         </div>
 

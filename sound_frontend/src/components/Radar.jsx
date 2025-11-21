@@ -5,15 +5,48 @@ const Radar = ({ points = [] }) => {
   const canvasRef = useRef(null);
   const animationFrameRef = useRef(null);
   const sweepProgressRef = useRef(0);
+  const containerRef = useRef(null);
+
+  // Initialize and resize canvas
+  const initializeCanvas = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return false;
+
+    const container = canvas.parentElement || containerRef.current;
+    if (container) {
+      const containerWidth = container.clientWidth || 600;
+      const containerHeight = container.clientHeight || 600;
+      const size = Math.max(400, Math.min(containerWidth, containerHeight) - 40);
+      canvas.width = size;
+      canvas.height = size;
+      return true;
+    }
+    return false;
+  };
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
+    // Initialize canvas size
+    if (!initializeCanvas()) {
+      // Fallback if container not ready
+      canvas.width = 600;
+      canvas.height = 600;
+    }
+
     const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Ensure canvas has valid dimensions
+    if (canvas.width <= 0 || canvas.height <= 0) {
+      console.warn('Canvas has invalid dimensions');
+      return;
+    }
+
     const centerX = canvas.width / 2;
     const centerY = canvas.height / 2;
-    const maxRadius = Math.min(centerX, centerY) - 40;
+    const maxRadius = Math.max(50, Math.min(centerX, centerY) - 40);
 
     const draw = () => {
       // Clear canvas
@@ -66,10 +99,11 @@ const Radar = ({ points = [] }) => {
       // Draw expanding radar sweep circle
       const sweepRadius = sweepProgressRef.current * maxRadius;
       if (sweepRadius > 0 && sweepRadius < maxRadius) {
+        const innerRadius = Math.max(0, sweepRadius - 20);
         const gradient = ctx.createRadialGradient(
           centerX,
           centerY,
-          sweepRadius - 20,
+          innerRadius,
           centerX,
           centerY,
           sweepRadius
@@ -149,11 +183,13 @@ const Radar = ({ points = [] }) => {
       animationFrameRef.current = requestAnimationFrame(draw);
     };
 
+    // Start the animation loop
     draw();
 
     return () => {
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
       }
     };
   }, [points]);
@@ -164,25 +200,52 @@ const Radar = ({ points = [] }) => {
     if (!canvas) return;
 
     const resizeCanvas = () => {
-      const container = canvas.parentElement;
-      const size = Math.min(container.clientWidth, container.clientHeight) - 40;
-      canvas.width = size;
-      canvas.height = size;
+      initializeCanvas();
     };
 
-    resizeCanvas();
+    // Initial resize with a small delay to ensure DOM is ready
+    const timeoutId = setTimeout(resizeCanvas, 100);
+    
+    // Use ResizeObserver for better resize handling
+    let resizeObserver;
+    try {
+      resizeObserver = new ResizeObserver(() => {
+        resizeCanvas();
+      });
+      
+      const container = canvas.parentElement;
+      if (container) {
+        resizeObserver.observe(container);
+      }
+    } catch (e) {
+      // Fallback if ResizeObserver not available
+      console.warn('ResizeObserver not available, using window resize');
+    }
+    
     window.addEventListener('resize', resizeCanvas);
-    return () => window.removeEventListener('resize', resizeCanvas);
+    
+    return () => {
+      clearTimeout(timeoutId);
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
+      window.removeEventListener('resize', resizeCanvas);
+    };
   }, []);
 
   return (
-    <div className="relative flex items-center justify-center">
+    <div ref={containerRef} className="relative flex items-center justify-center w-full h-full min-h-[600px]">
       <canvas
         ref={canvasRef}
         className="rounded-lg shadow-2xl"
+        width={600}
+        height={600}
         style={{
           background: 'radial-gradient(circle, rgba(15, 30, 53, 0.8) 0%, rgba(10, 22, 40, 0.95) 100%)',
           border: '1px solid rgba(26, 58, 82, 0.5)',
+          maxWidth: '100%',
+          maxHeight: '100%',
+          display: 'block',
         }}
       />
       {/* Overlay info */}
