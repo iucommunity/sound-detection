@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, Menu } from 'electron';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
@@ -19,13 +19,18 @@ function createWindow() {
       contextIsolation: true,
       enableRemoteModule: false,
     },
-    frame: true,
-    titleBarStyle: 'default',
+    frame: false, // Remove title bar
+    titleBarStyle: 'hidden', // Hide title bar
+    fullscreen: true, // Start in fullscreen
     show: false, // Don't show until ready
     // icon: join(__dirname, '../assets/icon.png'), // Uncomment if you have an icon
   });
 
-  // Maximize window on startup
+  // Hide menu bar completely
+  mainWindow.setMenuBarVisibility(false);
+  Menu.setApplicationMenu(null);
+  
+  // Maximize window on startup (in case fullscreen doesn't work)
   mainWindow.maximize();
   
   // Show window when ready to prevent visual flash
