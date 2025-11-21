@@ -19,7 +19,8 @@ const Radar = ({ points = [] }) => {
     if (container) {
       const containerWidth = container.clientWidth || 600;
       const containerHeight = container.clientHeight || 600;
-      const size = Math.max(400, Math.min(containerWidth, containerHeight) - 40);
+      // Reserve more space for labels (60px padding instead of 40px)
+      const size = Math.max(400, Math.min(containerWidth, containerHeight) - 60);
       canvas.width = size;
       canvas.height = size;
       return true;
@@ -49,7 +50,8 @@ const Radar = ({ points = [] }) => {
 
     const centerX = canvas.width / 2;
     const centerY = canvas.height / 2;
-    const maxRadius = Math.max(50, Math.min(centerX, centerY) - 40);
+    // Reserve more space for labels (60px instead of 40px)
+    const maxRadius = Math.max(50, Math.min(centerX, centerY) - 60);
 
     const draw = () => {
       // Clear canvas with subtle fade effect
@@ -88,9 +90,10 @@ const Radar = ({ points = [] }) => {
         ctx.stroke();
       }
 
-      // Draw grid lines with richer colors
+      // Draw grid lines with richer colors (0° = North at top)
       for (let angle = 0; angle < 360; angle += 30) {
-        const rad = (angle * Math.PI) / 180;
+        // Convert: 0° = North (top), so subtract 90° and flip Y
+        const rad = ((angle - 90) * Math.PI) / 180;
         const isCardinal = angle % 90 === 0;
         
         ctx.strokeStyle = isCardinal 
@@ -101,7 +104,7 @@ const Radar = ({ points = [] }) => {
         ctx.moveTo(centerX, centerY);
         ctx.lineTo(
           centerX + maxRadius * Math.cos(rad),
-          centerY + maxRadius * Math.sin(rad)
+          centerY - maxRadius * Math.sin(rad) // Flip Y for canvas
         );
         ctx.stroke();
       }
@@ -111,12 +114,13 @@ const Radar = ({ points = [] }) => {
       ctx.lineWidth = 0.8;
       for (let angle = 0; angle < 360; angle += 15) {
         if (angle % 30 === 0) continue; // Skip major lines
-        const rad = (angle * Math.PI) / 180;
+        // Convert: 0° = North (top), so subtract 90° and flip Y
+        const rad = ((angle - 90) * Math.PI) / 180;
         ctx.beginPath();
         ctx.moveTo(centerX, centerY);
         ctx.lineTo(
           centerX + maxRadius * Math.cos(rad),
-          centerY + maxRadius * Math.sin(rad)
+          centerY - maxRadius * Math.sin(rad) // Flip Y for canvas
         );
         ctx.stroke();
       }
@@ -126,31 +130,50 @@ const Radar = ({ points = [] }) => {
       ctx.textBaseline = 'middle';
       
       const directions = [
-        { angle: 0, label: 'N', full: 'NORTH', color: 'rgba(0, 217, 255, 1)' },
-        { angle: 90, label: 'E', full: 'EAST', color: 'rgba(124, 58, 237, 1)' },
-        { angle: 180, label: 'S', full: 'SOUTH', color: 'rgba(168, 85, 247, 1)' },
-        { angle: 270, label: 'W', full: 'WEST', color: 'rgba(0, 240, 255, 1)' },
+        { angle: 0, label: 'S', full: 'SOUTH', labelColor: 'rgba(0, 217, 255, 0.9)', fullColor: 'rgba(124, 58, 237, 0.8)' },
+        { angle: 90, label: 'E', full: 'EAST', labelColor: 'rgba(0, 217, 255, 0.9)', fullColor: 'rgba(168, 85, 247, 0.8)' },
+        { angle: 180, label: 'N', full: 'NORTH', labelColor: 'rgba(0, 217, 255, 0.9)', fullColor: 'rgba(124, 58, 237, 0.8)' },
+        { angle: 270, label: 'W', full: 'WEST', labelColor: 'rgba(0, 217, 255, 0.9)', fullColor: 'rgba(139, 92, 246, 0.8)' },
       ];
 
-      directions.forEach(({ angle, label, full, color }) => {
-        const rad = (angle * Math.PI) / 180;
-        const x = centerX + (maxRadius + 25) * Math.cos(rad);
-        const y = centerY + (maxRadius + 25) * Math.sin(rad);
+      directions.forEach(({ angle, label, full, labelColor, fullColor }) => {
+        // Convert angle: 0° = North (top), 90° = East (right), 180° = South (bottom), 270° = West (left)
+        // Subtract 90° to align with canvas coordinates and flip Y
+        const rad = ((angle - 90) * Math.PI) / 180;
         
-        // Enhanced glow effect
+        // Position labels closer to edge but within canvas bounds
+        const labelOffset = 20;
+        // Increase spacing for East and West (horizontal directions)
+        const isHorizontal = angle === 90 || angle === 270;
+        const fullLabelOffset = isHorizontal ? 45 : 35;
+        const x = centerX + (maxRadius + labelOffset) * Math.cos(rad);
+        const y = centerY - (maxRadius + labelOffset) * Math.sin(rad); // Flip Y for canvas coordinates
+        
+        // Enhanced glow effect for main label (single letter)
         ctx.shadowBlur = 15;
-        ctx.shadowColor = color.replace('1)', '0.8)');
-        ctx.fillStyle = color;
-        ctx.font = 'bold 18px monospace';
+        ctx.shadowColor = labelColor.replace('0.9)', '0.6)');
+        ctx.fillStyle = labelColor;
+        ctx.font = 'bold 16px monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
         ctx.fillText(label, x, y);
         
-        // Full label with softer color
+        // Full label with different color - positioned further out
         ctx.shadowBlur = 8;
-        ctx.fillStyle = color.replace('1)', '0.7)');
-        ctx.font = '11px monospace';
-        const labelX = centerX + (maxRadius + 42) * Math.cos(rad);
-        const labelY = centerY + (maxRadius + 42) * Math.sin(rad);
-        ctx.fillText(full, labelX, labelY);
+        ctx.shadowColor = fullColor.replace('0.8)', '0.5)');
+        ctx.fillStyle = fullColor;
+        ctx.font = '10px monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const labelX = centerX + (maxRadius + fullLabelOffset) * Math.cos(rad);
+        const labelY = centerY - (maxRadius + fullLabelOffset) * Math.sin(rad); // Flip Y for canvas coordinates
+        
+        // Ensure labels stay within canvas bounds
+        const padding = 5;
+        const clampedX = Math.max(padding, Math.min(canvas.width - padding, labelX));
+        const clampedY = Math.max(padding, Math.min(canvas.height - padding, labelY));
+        
+        ctx.fillText(full, clampedX, clampedY);
         
         ctx.shadowBlur = 0;
       });
