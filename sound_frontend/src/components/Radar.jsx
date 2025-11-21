@@ -105,7 +105,7 @@ const Radar = ({ points = [] }) => {
         // Draw distance label on the right side of each circle
         if (i < distanceRanges.length - 1) { // Don't label the outermost circle
           const labelX = centerX + radius + 8;
-          const labelY = centerY;
+          const labelY = centerY + 10; // Move down by 10px
           ctx.fillStyle = `rgba(0, 217, 255, ${alpha + 0.3})`;
           ctx.font = '10px monospace';
           ctx.textAlign = 'left';
@@ -127,7 +127,7 @@ const Radar = ({ points = [] }) => {
       // Label the outermost circle separately
       const outermostRadius = maxRadius;
       const labelX = centerX + outermostRadius + 8;
-      const labelY = centerY;
+      const labelY = centerY + 10; // Move down by 10px
       ctx.fillStyle = 'rgba(0, 217, 255, 0.5)';
       ctx.font = '10px monospace';
       ctx.textAlign = 'left';
