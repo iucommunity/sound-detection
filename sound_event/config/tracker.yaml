@@ -1,0 +1,55 @@
+# Multi-target DOA tracker configuration.
+
+# NOTE:
+# The 'dt' (time step) is derived automatically as:
+#   dt = hop_size / sample_rate
+# from stft.yaml and audio.yaml by the config_loader.
+# You don't need to specify dt here unless you want to override it.
+
+# Process noise standard deviation (deg/s^2).
+# Controls how quickly tracks are allowed to change direction.
+process_noise: 8.0
+
+# Measurement noise standard deviation (deg).
+# Represents uncertainty in raw DOA measurements.
+measurement_noise: 5.0
+
+# Gating threshold in degrees.
+# Detections farther than this from a track's predicted angle are ignored.
+gate_deg: 20.0
+
+# Number of consecutive frames a consistent detection must appear
+# before promoting it to a full track.
+birth_frames: 8
+
+# Number of consecutive missed frames after which a track is removed.
+death_frames: 18
+
+# Minimum SRP power required to create a new pending track.
+# Detections below this threshold are ignored for track birth.
+# Should be <= min_power from SSL config (typically 0.05-0.08).
+pending_track_power_threshold: 0.15
+
+# Maximum age (in frames) for pending tracks before they are removed.
+# Pending tracks that don't reach birth_frames within this time are discarded.
+# Should be >= birth_frames * 2 (typically 6-10).
+pending_track_max_age: 12
+
+# Confidence-based filtering parameters
+# Minimum confidence required to promote a pending track to a full track.
+# Tracks with confidence below this after birth_frames are not promoted.
+min_confidence_for_promotion: 0.35
+
+# Minimum hit rate (hits/age) required to promote a pending track.
+# This ensures only tracks with consistent detections are promoted.
+# Example: 0.5 means at least 50% of frames must have hits.
+min_hit_rate_for_promotion: 0.5
+
+# Minimum confidence to keep an active track.
+# Tracks with confidence below this for multiple frames will be removed.
+min_confidence_to_keep: 0.20
+
+# Number of consecutive frames with low confidence before removing a track.
+# A track is removed if its confidence is below min_confidence_to_keep
+# for this many consecutive frames.
+low_confidence_frames_before_removal: 5

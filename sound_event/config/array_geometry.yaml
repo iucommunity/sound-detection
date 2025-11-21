@@ -1,0 +1,18 @@
+# Microphone array geometry for ReSpeaker Mic Array v3.0 (4-mic circular)
+
+microphones:
+  - id: 0
+    # 45 degrees
+    position: [0.02284,  0.02284, 0.0]
+  - id: 1
+    # 135 degrees
+    position: [-0.02284, 0.02284, 0.0]
+  - id: 2
+    # 225 degrees
+    position: [-0.02284, -0.02284, 0.0]
+  - id: 3
+    # 315 degrees
+    position: [0.02284, -0.02284, 0.0]
+
+# Approximate speed of sound in air at ~20°C (m/s)
+speed_of_sound: 343.0

@@ -1,0 +1,13 @@
+# Master DOA pipeline configuration.
+# This file wires together all sub-configs used by the project.
+
+# Geometry config: microphone positions and speed of sound.
+geometry_path: "sound_event/config/array_geometry.yaml"
+
+# Sub-configs for individual subsystems.
+audio: "sound_event/config/audio.yaml"
+stft: "sound_event/config/stft.yaml"
+noise: "sound_event/config/noise.yaml"      # MCRA noise estimation (defined in noise.yaml)
+ssl: "sound_event/config/ssl.yaml"
+tracker: "sound_event/config/tracker.yaml"
+filters: "sound_event/config/filters.yaml"

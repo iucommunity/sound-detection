@@ -1,0 +1,35 @@
+# SSL (Sound Source Localization) configuration
+
+azimuth_res_deg: 1.0      # angular resolution for SRP scan
+max_sources: 3
+min_power: 0.20           # Further increased to reduce false detections from noise
+suppression_deg: 25.0
+
+# Bandpass for GCC-PHAT
+bandpass_low_hz: 300
+bandpass_high_hz: 4000
+
+# Orientation offset (physical rotation of microphone array)
+orientation_offset_deg: 0.0
+
+# SNR masking (noise suppression for SRP)
+use_snr_mask: true
+snr_mask_low_db: 0.0
+snr_mask_high_db: 20.0
+
+# Frequency weighting for GCC-PHAT
+use_freq_weighting: false  # Disabled by default - can enable after testing
+freq_weight_peak_hz: 1500.0  # Peak frequency for bell curve (Hz)
+freq_weight_width_hz: 2000.0  # Width of bell curve (Hz)
+
+# Pair weighting for SRP (confidence-aware)
+use_pair_weighting: false  # Disabled by default - can enable after testing
+
+# Temporal smoothing on P_theta
+use_temporal_smoothing: false  # Disabled by default - can enable after testing
+temporal_smoothing_alpha: 0.8  # EMA coefficient (0.7-0.9 recommended)
+
+# Tracking-based peak selection
+use_tracking_boost: false  # Disabled by default - can enable after testing
+tracking_boost_lambda: 0.3  # Boost strength (0.0 = no boost, 1.0 = strong)
+tracking_boost_sigma_deg: 15.0  # Gaussian width for boost (degrees)

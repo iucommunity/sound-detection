@@ -1,0 +1,20 @@
+# MCRA (Minima-Controlled Recursive Averaging) noise estimation config.
+# Used to estimate stationary noise power |N(k, t)|^2 frame by frame.
+
+# Smoothing factor for spectral power tracking
+# Typical range: 0.7–0.98. Lower = faster adaptation.
+alpha_s: 0.85
+
+# Number of frames in minima-tracking window.
+# At 10 ms hop size, 15 frames ≈ 150 ms.
+minima_window: 15
+
+# Detection threshold factor.
+# Noise minima multiplied by this factor.
+delta: 1.5
+
+# Decision smoothing for speech presence probability.
+alpha_d: 0.1
+
+# Small epsilon to avoid division-by-zero in normalization.
+epsilon: 1e-8

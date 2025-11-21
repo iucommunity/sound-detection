@@ -1,0 +1,15 @@
+# STFT configuration for 16 kHz sampling rate.
+
+# Frame size in samples (analysis window length).
+# 320 samples @ 16 kHz ≈ 20 ms.
+frame_size: 320
+
+# Hop size in samples (frame shift).
+# 160 samples @ 16 kHz ≈ 10 ms.
+hop_size: 160
+
+# FFT size for rFFT. >= frame_size.
+fft_size: 512
+
+# Window type: "hann", "hamming", or "rect".
+window_type: "hann"

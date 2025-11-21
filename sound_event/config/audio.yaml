@@ -1,0 +1,37 @@
+# Audio input configuration
+
+# Device name or substring used by sounddevice.
+# For ReSpeaker Mic Array v3.0, this often contains "ReSpeaker".
+device: "hw:0,0"
+
+# Sample rate in Hz. We standardize on 16 kHz for this project.
+sample_rate: 16000
+
+# Number of samples per audio callback block.
+# At 16 kHz, 512 samples ≈ 32 ms.
+block_size: 512
+
+# Number of output channels for DOA pipeline (after channel mapping).
+# For ReSpeaker: 4 (CH1-CH4 are the raw mic channels).
+channels: 4
+
+# Channel mapping for ReSpeaker 6-channel firmware.
+# ReSpeaker provides 6 channels:
+#   CH0 = processed audio (NOT used)
+#   CH1 = mic1 raw  <-- use this
+#   CH2 = mic2 raw  <-- use this
+#   CH3 = mic3 raw  <-- use this
+#   CH4 = mic4 raw  <-- use this
+#   CH5 = merged playback (NOT used)
+# 
+# This mapping selects CH1-CH4 (indices 1,2,3,4) from the 6-channel stream.
+# Set to null/empty to disable mapping (directly use first 'channels' channels).
+channel_mapping: [1, 2, 3, 4]
+
+# Number of channels to capture from device (only needed if channel_mapping is used).
+# For ReSpeaker 6-channel firmware, this should be 6.
+# If not specified and channel_mapping is provided, will be inferred as max(channel_mapping) + 1.
+capture_channels: 6
+
+# Numpy dtype used internally.
+dtype: float32
