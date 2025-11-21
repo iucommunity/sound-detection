@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Radar from './components/Radar';
 import ControlPanel from './components/ControlPanel';
+import PointsHistory from './components/PointsHistory';
 import { radarPoints as initialPoints } from './data/radarPoints';
 
 function App() {
@@ -78,12 +79,17 @@ function App() {
 
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden min-h-0 relative z-10">
+        {/* Left Panel - Points History */}
+        <div className="w-80 border-r border-radar-grid/50 bg-radar-surface/30 backdrop-blur-md shadow-2xl">
+          <PointsHistory points={points} />
+        </div>
+
         {/* Radar View */}
         <div className="flex-1 flex items-center justify-center p-8 min-h-0 relative">
           <Radar points={points} />
         </div>
 
-        {/* Control Panel */}
+        {/* Right Panel - Control Panel */}
         <div className="w-80 border-l border-radar-grid/50 bg-radar-surface/30 backdrop-blur-md shadow-2xl">
           <ControlPanel
             points={points}

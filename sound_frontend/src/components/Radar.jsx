@@ -7,6 +7,8 @@ const Radar = ({ points = [] }) => {
   const sweepProgressRef = useRef(0);
   const containerRef = useRef(null);
   const sweepHistoryRef = useRef([]);
+  const ripplesRef = useRef([]);
+  const lastDropTimeRef = useRef(0);
 
   // Initialize and resize canvas
   const initializeCanvas = () => {
@@ -152,20 +154,128 @@ const Radar = ({ points = [] }) => {
         ctx.shadowBlur = 0;
       });
 
-      // Update sweep history for trail effect
-      const currentSweep = sweepProgressRef.current * maxRadius;
-      sweepHistoryRef.current.push({
-        radius: currentSweep,
-        opacity: 1,
-        time: Date.now()
+      // Water drop effect - create new ripple periodically
+      const now = Date.now();
+      const timeSinceLastDrop = now - lastDropTimeRef.current;
+      if (timeSinceLastDrop > 2000) { // Create new drop every 2 seconds
+        ripplesRef.current.push({
+          radius: 0,
+          opacity: 1,
+          time: now,
+          maxRadius: maxRadius,
+          dropTime: now // Track when drop was created
+        });
+        lastDropTimeRef.current = now;
+      }
+
+      // Update water ripples
+      ripplesRef.current = ripplesRef.current
+        .map(ripple => {
+          const age = (now - ripple.time) / 1000; // age in seconds
+          const speed = 100; // pixels per second - slower for more visible effect
+          const newRadius = age * speed;
+          const progress = newRadius / ripple.maxRadius;
+          
+          return {
+            ...ripple,
+            radius: newRadius,
+            opacity: Math.max(0, (1 - progress) * 0.7) // Fade out as it expands
+          };
+        })
+        .filter(ripple => ripple.opacity > 0 && ripple.radius < ripple.maxRadius * 1.2);
+
+      // Draw water drop at center when it first appears (before ripples)
+      const recentDrops = ripplesRef.current.filter(r => r.dropTime && (now - r.dropTime) < 300);
+      recentDrops.forEach((ripple) => {
+        const dropAge = (now - ripple.dropTime) / 300; // 0 to 1 over 300ms
+        const dropSize = 4 + Math.sin(dropAge * Math.PI) * 3;
+        const dropAlpha = Math.max(0, 1 - dropAge * 1.5);
+        
+        if (dropAlpha > 0) {
+          // Drop shadow/ripple at center
+          const dropGradient = ctx.createRadialGradient(
+            centerX, centerY, 0,
+            centerX, centerY, dropSize * 4
+          );
+          dropGradient.addColorStop(0, `rgba(0, 212, 255, ${dropAlpha * 0.8})`);
+          dropGradient.addColorStop(0.4, `rgba(0, 255, 136, ${dropAlpha * 0.5})`);
+          dropGradient.addColorStop(1, 'rgba(0, 212, 255, 0)');
+          
+          ctx.fillStyle = dropGradient;
+          ctx.beginPath();
+          ctx.arc(centerX, centerY, dropSize * 4, 0, Math.PI * 2);
+          ctx.fill();
+          
+          // Drop itself
+          ctx.fillStyle = `rgba(0, 255, 136, ${dropAlpha})`;
+          ctx.beginPath();
+          ctx.arc(centerX, centerY, dropSize, 0, Math.PI * 2);
+          ctx.fill();
+          
+          // Drop highlight
+          ctx.fillStyle = `rgba(255, 255, 255, ${dropAlpha * 0.5})`;
+          ctx.beginPath();
+          ctx.arc(centerX - dropSize * 0.3, centerY - dropSize * 0.3, dropSize * 0.3, 0, Math.PI * 2);
+          ctx.fill();
+        }
       });
+
+      // Draw water ripples (like water drop on water) - expanding circles
+      ripplesRef.current.forEach((ripple) => {
+        if (ripple.radius <= 5) return; // Don't draw until ripple starts expanding
+        
+        // Draw multiple concentric rings for each ripple to create wave effect
+        for (let ring = 0; ring < 4; ring++) {
+          const ringOffset = ring * 20;
+          const ringRadius = Math.max(0, ripple.radius - ringOffset);
+          if (ringRadius < 5) continue;
+          
+          const ringOpacity = ripple.opacity * (1 - ring * 0.25) * (1 - ringRadius / ripple.maxRadius * 0.5);
+          const ringWidth = 1.5 + ring * 1.5;
+          
+          // Create gradient for each ring
+          const ringGradient = ctx.createRadialGradient(
+            centerX, centerY, ringRadius - ringWidth,
+            centerX, centerY, ringRadius + ringWidth
+          );
+          ringGradient.addColorStop(0, `rgba(0, 255, 136, ${ringOpacity * 0.3})`);
+          ringGradient.addColorStop(0.5, `rgba(0, 212, 255, ${ringOpacity * 0.6})`);
+          ringGradient.addColorStop(1, `rgba(0, 255, 136, ${ringOpacity * 0.2})`);
+          
+          // Outer ring with gradient
+          ctx.strokeStyle = ringGradient;
+          ctx.lineWidth = ringWidth;
+          ctx.beginPath();
+          ctx.arc(centerX, centerY, ringRadius, 0, Math.PI * 2);
+          ctx.stroke();
+          
+          // Bright inner edge
+          if (ring === 0) {
+            ctx.strokeStyle = `rgba(0, 255, 136, ${ringOpacity * 0.9})`;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, ringRadius, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+        }
+      });
+
+      // Update sweep history for trail effect (slower)
+      const currentSweep = sweepProgressRef.current * maxRadius;
+      if (sweepHistoryRef.current.length === 0 || 
+          currentSweep - sweepHistoryRef.current[sweepHistoryRef.current.length - 1].radius > 15) {
+        sweepHistoryRef.current.push({
+          radius: currentSweep,
+          opacity: 1,
+          time: now
+        });
+      }
       
       // Remove old sweeps and update opacity
-      const now = Date.now();
       sweepHistoryRef.current = sweepHistoryRef.current
         .map(sweep => ({
           ...sweep,
-          opacity: Math.max(0, sweep.opacity - 0.02)
+          opacity: Math.max(0, sweep.opacity - 0.015) // Slower fade
         }))
         .filter(sweep => sweep.opacity > 0 && sweep.radius < maxRadius * 1.1);
 
@@ -332,8 +442,8 @@ const Radar = ({ points = [] }) => {
       ctx.lineTo(centerX, centerY + 8);
       ctx.stroke();
 
-      // Update sweep progress
-      sweepProgressRef.current += 0.015;
+      // Update sweep progress (slower speed)
+      sweepProgressRef.current += 0.008; // Reduced from 0.015 to make it slower
       if (sweepProgressRef.current > 1) {
         sweepProgressRef.current = 0;
         // Keep last few sweeps for smooth transition
