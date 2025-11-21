@@ -91,9 +91,38 @@ function App() {
                 classLabel: point.class_label || 'unknown',
                 color: point.color || '#00d9ff',
               }));
+              
+              // Update current points for radar display
               setPoints(transformedPoints);
               
+              // Update points history - add all new points that haven't been seen before
+              // Once a point appears on radar, it stays in history forever
               if (transformedPoints.length > 0) {
+                setPointsHistory(prevHistory => {
+                  const existingIds = new Set(prevHistory.map(p => p.id));
+                  const newPoints = transformedPoints.filter(p => !existingIds.has(p.id));
+                  
+                  // Update existing points in history with latest data (position, intensity, etc.)
+                  const updatedHistory = prevHistory.map(histPoint => {
+                    const currentPoint = transformedPoints.find(p => p.id === histPoint.id);
+                    // If point is in current data, update it; otherwise keep the historical data
+                    return currentPoint ? { ...currentPoint, timestamp: currentPoint.timestamp } : histPoint;
+                  });
+                  
+                  // Add new points that have never been seen before
+                  if (newPoints.length > 0) {
+                    // Combine updated history with new points, sorted by timestamp (newest first)
+                    const combinedHistory = [...newPoints, ...updatedHistory].sort((a, b) => 
+                      new Date(b.timestamp) - new Date(a.timestamp)
+                    );
+                    console.log(`✓ Added ${newPoints.length} new point(s) to history (total: ${combinedHistory.length})`);
+                    return combinedHistory;
+                  }
+                  
+                  // No new points, just return updated history
+                  return updatedHistory;
+                });
+                
                 console.log(`✓ Processed ${transformedPoints.length} point(s) and updated radar display`);
               } else {
                 console.log('  - No points to display (empty array)');
@@ -235,7 +264,7 @@ function App() {
       <div className="flex-1 flex overflow-hidden min-h-0 relative z-10">
         {/* Left Panel - Points History */}
         <div className="w-80 border-r border-radar-grid/50 bg-radar-surface/30 backdrop-blur-md shadow-2xl">
-          <PointsHistory points={points} />
+          <PointsHistory points={pointsHistory} />
         </div>
 
         {/* Radar View */}
