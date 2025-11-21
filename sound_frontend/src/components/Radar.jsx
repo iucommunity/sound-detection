@@ -56,46 +56,47 @@ const Radar = ({ points = [] }) => {
       ctx.fillStyle = 'rgba(10, 22, 40, 0.95)';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // Draw background radial gradient
+      // Draw background radial gradient with cool colors
       const bgGradient = ctx.createRadialGradient(
         centerX, centerY, 0,
         centerX, centerY, maxRadius
       );
-      bgGradient.addColorStop(0, 'rgba(15, 30, 53, 0.3)');
-      bgGradient.addColorStop(0.5, 'rgba(10, 22, 40, 0.5)');
-      bgGradient.addColorStop(1, 'rgba(5, 15, 30, 0.8)');
+      bgGradient.addColorStop(0, 'rgba(10, 20, 40, 0.4)');
+      bgGradient.addColorStop(0.3, 'rgba(8, 15, 35, 0.5)');
+      bgGradient.addColorStop(0.6, 'rgba(5, 10, 25, 0.7)');
+      bgGradient.addColorStop(1, 'rgba(3, 5, 15, 0.9)');
       ctx.fillStyle = bgGradient;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // Draw concentric circles with gradient
+      // Draw concentric circles with richer colors
       for (let i = 1; i <= 5; i++) {
         const radius = (maxRadius / 5) * i;
-        const alpha = 0.3 - (i * 0.05);
+        const alpha = 0.4 - (i * 0.06);
         
-        // Outer glow
-        ctx.strokeStyle = `rgba(26, 58, 82, ${alpha})`;
+        // Outer glow with cyan tint
+        ctx.strokeStyle = `rgba(30, 58, 95, ${alpha})`;
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
         ctx.stroke();
         
-        // Main circle
-        ctx.strokeStyle = `rgba(74, 107, 127, ${alpha + 0.2})`;
-        ctx.lineWidth = 1;
+        // Main circle with cool cyan color
+        ctx.strokeStyle = `rgba(0, 217, 255, ${alpha + 0.15})`;
+        ctx.lineWidth = 1.5;
         ctx.beginPath();
         ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
         ctx.stroke();
       }
 
-      // Draw grid lines with varying opacity
+      // Draw grid lines with richer colors
       for (let angle = 0; angle < 360; angle += 30) {
         const rad = (angle * Math.PI) / 180;
         const isCardinal = angle % 90 === 0;
         
         ctx.strokeStyle = isCardinal 
-          ? 'rgba(0, 255, 136, 0.3)' 
-          : 'rgba(26, 58, 82, 0.4)';
-        ctx.lineWidth = isCardinal ? 1.5 : 1;
+          ? 'rgba(0, 217, 255, 0.5)' 
+          : 'rgba(30, 58, 95, 0.35)';
+        ctx.lineWidth = isCardinal ? 2 : 1.2;
         ctx.beginPath();
         ctx.moveTo(centerX, centerY);
         ctx.lineTo(
@@ -105,9 +106,9 @@ const Radar = ({ points = [] }) => {
         ctx.stroke();
       }
       
-      // Draw minor grid lines (every 15 degrees)
-      ctx.strokeStyle = 'rgba(26, 58, 82, 0.2)';
-      ctx.lineWidth = 0.5;
+      // Draw minor grid lines (every 15 degrees) with subtle color
+      ctx.strokeStyle = 'rgba(30, 58, 95, 0.25)';
+      ctx.lineWidth = 0.8;
       for (let angle = 0; angle < 360; angle += 15) {
         if (angle % 30 === 0) continue; // Skip major lines
         const rad = (angle * Math.PI) / 180;
@@ -120,35 +121,35 @@ const Radar = ({ points = [] }) => {
         ctx.stroke();
       }
 
-      // Draw cardinal directions with glow
+      // Draw cardinal directions with vibrant glow
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       
       const directions = [
-        { angle: 0, label: 'N', full: 'NORTH' },
-        { angle: 90, label: 'E', full: 'EAST' },
-        { angle: 180, label: 'S', full: 'SOUTH' },
-        { angle: 270, label: 'W', full: 'WEST' },
+        { angle: 0, label: 'N', full: 'NORTH', color: 'rgba(0, 217, 255, 1)' },
+        { angle: 90, label: 'E', full: 'EAST', color: 'rgba(124, 58, 237, 1)' },
+        { angle: 180, label: 'S', full: 'SOUTH', color: 'rgba(168, 85, 247, 1)' },
+        { angle: 270, label: 'W', full: 'WEST', color: 'rgba(0, 240, 255, 1)' },
       ];
 
-      directions.forEach(({ angle, label, full }) => {
+      directions.forEach(({ angle, label, full, color }) => {
         const rad = (angle * Math.PI) / 180;
         const x = centerX + (maxRadius + 25) * Math.cos(rad);
         const y = centerY + (maxRadius + 25) * Math.sin(rad);
         
-        // Glow effect
-        ctx.shadowBlur = 10;
-        ctx.shadowColor = 'rgba(0, 255, 136, 0.5)';
-        ctx.fillStyle = '#00ff88';
-        ctx.font = 'bold 16px monospace';
+        // Enhanced glow effect
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = color.replace('1)', '0.8)');
+        ctx.fillStyle = color;
+        ctx.font = 'bold 18px monospace';
         ctx.fillText(label, x, y);
         
-        // Full label
-        ctx.shadowBlur = 5;
-        ctx.fillStyle = 'rgba(0, 255, 136, 0.6)';
-        ctx.font = '10px monospace';
-        const labelX = centerX + (maxRadius + 40) * Math.cos(rad);
-        const labelY = centerY + (maxRadius + 40) * Math.sin(rad);
+        // Full label with softer color
+        ctx.shadowBlur = 8;
+        ctx.fillStyle = color.replace('1)', '0.7)');
+        ctx.font = '11px monospace';
+        const labelX = centerX + (maxRadius + 42) * Math.cos(rad);
+        const labelY = centerY + (maxRadius + 42) * Math.sin(rad);
         ctx.fillText(full, labelX, labelY);
         
         ctx.shadowBlur = 0;
@@ -157,7 +158,8 @@ const Radar = ({ points = [] }) => {
       // Water drop effect - create new ripple periodically
       const now = Date.now();
       const timeSinceLastDrop = now - lastDropTimeRef.current;
-      if (timeSinceLastDrop > 2000) { // Create new drop every 2 seconds
+      // Safety check: don't create new ripples if too many exist
+      if (timeSinceLastDrop > 2000 && ripplesRef.current.length < 3) {
         ripplesRef.current.push({
           radius: 0,
           opacity: 1,
@@ -168,7 +170,8 @@ const Radar = ({ points = [] }) => {
         lastDropTimeRef.current = now;
       }
 
-      // Update water ripples
+      // Update water ripples - limit to prevent accumulation
+      const MAX_RIPPLES = 3;
       ripplesRef.current = ripplesRef.current
         .map(ripple => {
           const age = (now - ripple.time) / 1000; // age in seconds
@@ -182,47 +185,14 @@ const Radar = ({ points = [] }) => {
             opacity: Math.max(0, (1 - progress) * 0.7) // Fade out as it expands
           };
         })
-        .filter(ripple => ripple.opacity > 0 && ripple.radius < ripple.maxRadius * 1.2);
+        .filter(ripple => ripple.opacity > 0.05 && ripple.radius < ripple.maxRadius * 1.1)
+        .slice(-MAX_RIPPLES); // Keep only the most recent ripples
 
-      // Draw water drop at center when it first appears (before ripples)
-      const recentDrops = ripplesRef.current.filter(r => r.dropTime && (now - r.dropTime) < 300);
-      recentDrops.forEach((ripple) => {
-        const dropAge = (now - ripple.dropTime) / 300; // 0 to 1 over 300ms
-        const dropSize = 4 + Math.sin(dropAge * Math.PI) * 3;
-        const dropAlpha = Math.max(0, 1 - dropAge * 1.5);
-        
-        if (dropAlpha > 0) {
-          // Drop shadow/ripple at center
-          const dropGradient = ctx.createRadialGradient(
-            centerX, centerY, 0,
-            centerX, centerY, dropSize * 4
-          );
-          dropGradient.addColorStop(0, `rgba(0, 212, 255, ${dropAlpha * 0.8})`);
-          dropGradient.addColorStop(0.4, `rgba(0, 255, 136, ${dropAlpha * 0.5})`);
-          dropGradient.addColorStop(1, 'rgba(0, 212, 255, 0)');
-          
-          ctx.fillStyle = dropGradient;
-          ctx.beginPath();
-          ctx.arc(centerX, centerY, dropSize * 4, 0, Math.PI * 2);
-          ctx.fill();
-          
-          // Drop itself
-          ctx.fillStyle = `rgba(0, 255, 136, ${dropAlpha})`;
-          ctx.beginPath();
-          ctx.arc(centerX, centerY, dropSize, 0, Math.PI * 2);
-          ctx.fill();
-          
-          // Drop highlight
-          ctx.fillStyle = `rgba(255, 255, 255, ${dropAlpha * 0.5})`;
-          ctx.beginPath();
-          ctx.arc(centerX - dropSize * 0.3, centerY - dropSize * 0.3, dropSize * 0.3, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      });
+      // Water drop effect removed - no blinking at center
 
-      // Draw water ripples (like water drop on water) - expanding circles
+      // Draw water ripples (like water drop on water) - expanding circles with vibrant colors
       ripplesRef.current.forEach((ripple) => {
-        if (ripple.radius <= 5) return; // Don't draw until ripple starts expanding
+        if (ripple.radius <= 20) return; // Don't draw until ripple is far enough from center to prevent blinking
         
         // Draw multiple concentric rings for each ripple to create wave effect
         for (let ring = 0; ring < 4; ring++) {
@@ -231,39 +201,48 @@ const Radar = ({ points = [] }) => {
           if (ringRadius < 5) continue;
           
           const ringOpacity = ripple.opacity * (1 - ring * 0.25) * (1 - ringRadius / ripple.maxRadius * 0.5);
-          const ringWidth = 1.5 + ring * 1.5;
+          const ringWidth = 2 + ring * 1.5;
           
-          // Create gradient for each ring
+          // Create gradient for each ring with cool cyan-purple colors
           const ringGradient = ctx.createRadialGradient(
             centerX, centerY, ringRadius - ringWidth,
             centerX, centerY, ringRadius + ringWidth
           );
-          ringGradient.addColorStop(0, `rgba(0, 255, 136, ${ringOpacity * 0.3})`);
-          ringGradient.addColorStop(0.5, `rgba(0, 212, 255, ${ringOpacity * 0.6})`);
-          ringGradient.addColorStop(1, `rgba(0, 255, 136, ${ringOpacity * 0.2})`);
+          ringGradient.addColorStop(0, `rgba(0, 217, 255, ${ringOpacity * 0.4})`);
+          ringGradient.addColorStop(0.5, `rgba(124, 58, 237, ${ringOpacity * 0.7})`);
+          ringGradient.addColorStop(1, `rgba(0, 240, 255, ${ringOpacity * 0.2})`);
           
           // Outer ring with gradient
           ctx.strokeStyle = ringGradient;
           ctx.lineWidth = ringWidth;
+          ctx.shadowBlur = 8;
+          ctx.shadowColor = `rgba(0, 217, 255, ${ringOpacity * 0.5})`;
           ctx.beginPath();
           ctx.arc(centerX, centerY, ringRadius, 0, Math.PI * 2);
           ctx.stroke();
+          ctx.shadowBlur = 0;
           
           // Bright inner edge
           if (ring === 0) {
-            ctx.strokeStyle = `rgba(0, 255, 136, ${ringOpacity * 0.9})`;
-            ctx.lineWidth = 2;
+            ctx.strokeStyle = `rgba(0, 217, 255, ${ringOpacity * 1.0})`;
+            ctx.lineWidth = 2.5;
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = `rgba(0, 217, 255, ${ringOpacity * 0.8})`;
             ctx.beginPath();
             ctx.arc(centerX, centerY, ringRadius, 0, Math.PI * 2);
             ctx.stroke();
+            ctx.shadowBlur = 0;
           }
         }
       });
 
-      // Update sweep history for trail effect (slower)
+      // Update sweep history for trail effect (reduced blinking)
+      const MAX_SWEEPS = 1; // Only one sweep at a time to prevent blinking
       const currentSweep = sweepProgressRef.current * maxRadius;
+      
+      // Add new sweep less frequently to reduce blinking
       if (sweepHistoryRef.current.length === 0 || 
-          currentSweep - sweepHistoryRef.current[sweepHistoryRef.current.length - 1].radius > 15) {
+          currentSweep - sweepHistoryRef.current[sweepHistoryRef.current.length - 1].radius > 5) {
         sweepHistoryRef.current.push({
           radius: currentSweep,
           opacity: 1,
@@ -271,23 +250,39 @@ const Radar = ({ points = [] }) => {
         });
       }
       
-      // Remove old sweeps and update opacity
+      // Remove old sweeps and update opacity - smooth fade as extends
       sweepHistoryRef.current = sweepHistoryRef.current
-        .map(sweep => ({
-          ...sweep,
-          opacity: Math.max(0, sweep.opacity - 0.015) // Slower fade
-        }))
-        .filter(sweep => sweep.opacity > 0 && sweep.radius < maxRadius * 1.1);
+        .map(sweep => {
+          const progress = sweep.radius / maxRadius;
+          // Smooth fade: gradual decrease
+          const distanceFade = 1 - (progress * 0.3); // Fade to 70% at edge
+          // Time-based fade for smooth disappearance
+          const age = (now - sweep.time) / 1000; // age in seconds
+          const timeFade = Math.max(0, 1 - (age * 0.3)); // Fade out over 3.3 seconds
+          return {
+            ...sweep,
+            opacity: Math.min(distanceFade, timeFade) // Use the smaller value for gradual fade
+          };
+        })
+        .filter(sweep => sweep.opacity > 0.05 && sweep.radius <= maxRadius) // Extend to edge
+        .slice(-MAX_SWEEPS); // Only keep one sweep to prevent blinking
 
-      // Draw multiple expanding circles (trail effect)
+      // Draw extending circle - natural radar sweep effect
       sweepHistoryRef.current.forEach((sweep, index) => {
-        if (sweep.radius <= 0 || sweep.radius > maxRadius) return;
+        if (sweep.radius <= 15 || sweep.radius > maxRadius) return; // Don't draw near center to prevent blinking
         
-        const ringWidth = 30;
-        const innerRadius = Math.max(0, sweep.radius - ringWidth);
+        const progress = sweep.radius / maxRadius;
+        
+        // Wider trailing fade for more natural look
+        const trailWidth = 50;
+        const innerRadius = Math.max(15, sweep.radius - trailWidth);
         const outerRadius = sweep.radius;
         
-        // Create gradient for each ring
+        // Natural opacity curve - brighter near leading edge, fades behind
+        const baseOpacity = sweep.opacity;
+        const fadeProgress = (sweep.radius - innerRadius) / trailWidth; // 0 to 1 across trail width
+        
+        // Create natural radar sweep gradient - bright leading edge, smooth trailing fade
         const gradient = ctx.createRadialGradient(
           centerX,
           centerY,
@@ -297,40 +292,33 @@ const Radar = ({ points = [] }) => {
           outerRadius
         );
         
-        // Vary colors based on position
-        const progress = sweep.radius / maxRadius;
-        const primaryColor = progress < 0.5 
-          ? 'rgba(0, 255, 136, ' 
-          : 'rgba(0, 212, 255, ';
-        const secondaryColor = progress < 0.5
-          ? 'rgba(0, 212, 255, '
-          : 'rgba(138, 43, 226, ';
+        // Reduced opacity for subtler effect
+        const leadingEdgeOpacity = baseOpacity * 0.15; // Much lower opacity
+        const midOpacity = baseOpacity * 0.1;
+        const trailingOpacity = baseOpacity * 0.05;
         
-        gradient.addColorStop(0, primaryColor + (sweep.opacity * 0.4) + ')');
-        gradient.addColorStop(0.5, secondaryColor + (sweep.opacity * 0.3) + ')');
-        gradient.addColorStop(1, primaryColor + '0)');
+        gradient.addColorStop(0, `rgba(0, 217, 255, ${trailingOpacity})`);
+        gradient.addColorStop(0.6, `rgba(0, 217, 255, ${midOpacity})`);
+        gradient.addColorStop(0.9, `rgba(0, 217, 255, ${leadingEdgeOpacity})`);
+        gradient.addColorStop(1, `rgba(0, 217, 255, 0)`);
 
+        // Draw the trailing fade
         ctx.fillStyle = gradient;
         ctx.beginPath();
         ctx.arc(centerX, centerY, outerRadius, 0, Math.PI * 2);
         ctx.fill();
 
-        // Outer edge with varying intensity
-        const edgeAlpha = sweep.opacity * (0.8 - progress * 0.3);
-        ctx.strokeStyle = `rgba(0, 255, 136, ${edgeAlpha})`;
-        ctx.lineWidth = 2 + (1 - progress) * 2;
+        // Subtle leading edge ring - reduced opacity
+        const edgeOpacity = baseOpacity * 0.35; // Much lower opacity
+        ctx.strokeStyle = `rgba(0, 217, 255, ${edgeOpacity})`;
+        ctx.lineWidth = 2;
+        ctx.shadowBlur = 6; // Reduced glow
+        ctx.shadowColor = `rgba(0, 217, 255, ${edgeOpacity * 0.5})`;
         ctx.beginPath();
         ctx.arc(centerX, centerY, outerRadius, 0, Math.PI * 2);
         ctx.stroke();
         
-        // Inner edge glow
-        if (innerRadius > 0) {
-          ctx.strokeStyle = `rgba(0, 212, 255, ${sweep.opacity * 0.2})`;
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.arc(centerX, centerY, innerRadius, 0, Math.PI * 2);
-          ctx.stroke();
-        }
+        ctx.shadowBlur = 0;
       });
 
       // Draw radar points with enhanced visuals
@@ -351,7 +339,7 @@ const Radar = ({ points = [] }) => {
           const pulseAlpha = (1 - pulseOffset) * alpha * 0.2;
           
           if (pulseAlpha > 0) {
-            ctx.strokeStyle = `rgba(0, 255, 136, ${pulseAlpha})`;
+            ctx.strokeStyle = `rgba(0, 217, 255, ${pulseAlpha})`;
             ctx.lineWidth = 2;
             ctx.beginPath();
             ctx.arc(screenX, screenY, pulseSize, 0, Math.PI * 2);
@@ -359,11 +347,11 @@ const Radar = ({ points = [] }) => {
           }
         }
 
-        // Outer glow with multiple layers
+        // Outer glow with multiple layers - vibrant colors
         const glowLayers = [
-          { radius: baseSize * 3, alpha: alpha * 0.3 },
-          { radius: baseSize * 2, alpha: alpha * 0.5 },
-          { radius: baseSize * 1.5, alpha: alpha * 0.7 }
+          { radius: baseSize * 3, alpha: alpha * 0.35 },
+          { radius: baseSize * 2, alpha: alpha * 0.6 },
+          { radius: baseSize * 1.5, alpha: alpha * 0.8 }
         ];
         
         glowLayers.forEach(({ radius, alpha: layerAlpha }) => {
@@ -371,24 +359,29 @@ const Radar = ({ points = [] }) => {
             screenX, screenY, 0,
             screenX, screenY, radius
           );
-          pointGradient.addColorStop(0, `rgba(0, 255, 136, ${layerAlpha})`);
-          pointGradient.addColorStop(0.5, `rgba(0, 212, 255, ${layerAlpha * 0.6})`);
-          pointGradient.addColorStop(1, 'rgba(0, 255, 136, 0)');
+          pointGradient.addColorStop(0, `rgba(0, 217, 255, ${layerAlpha})`);
+          pointGradient.addColorStop(0.4, `rgba(124, 58, 237, ${layerAlpha * 0.7})`);
+          pointGradient.addColorStop(0.7, `rgba(0, 240, 255, ${layerAlpha * 0.4})`);
+          pointGradient.addColorStop(1, 'rgba(0, 217, 255, 0)');
 
           ctx.fillStyle = pointGradient;
+          ctx.shadowBlur = radius * 0.5;
+          ctx.shadowColor = `rgba(0, 217, 255, ${layerAlpha * 0.6})`;
           ctx.beginPath();
           ctx.arc(screenX, screenY, radius, 0, Math.PI * 2);
           ctx.fill();
+          ctx.shadowBlur = 0;
         });
 
-        // Main point core
+        // Main point core with vibrant gradient
         const coreGradient = ctx.createRadialGradient(
           screenX, screenY, 0,
           screenX, screenY, baseSize
         );
         coreGradient.addColorStop(0, `rgba(255, 255, 255, ${alpha})`);
-        coreGradient.addColorStop(0.3, `rgba(0, 255, 136, ${alpha})`);
-        coreGradient.addColorStop(1, `rgba(0, 212, 255, ${alpha * 0.5})`);
+        coreGradient.addColorStop(0.3, `rgba(0, 217, 255, ${alpha})`);
+        coreGradient.addColorStop(0.7, `rgba(124, 58, 237, ${alpha * 0.8})`);
+        coreGradient.addColorStop(1, `rgba(0, 240, 255, ${alpha * 0.4})`);
         
         ctx.fillStyle = coreGradient;
         ctx.beginPath();
@@ -398,42 +391,32 @@ const Radar = ({ points = [] }) => {
         // Bright center dot
         ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
         ctx.beginPath();
-        ctx.arc(screenX, screenY, baseSize * 0.3, 0, Math.PI * 2);
+        ctx.arc(screenX, screenY, baseSize * 0.35, 0, Math.PI * 2);
         ctx.fill();
         
-        // Direction line to center
-        ctx.strokeStyle = `rgba(0, 255, 136, ${alpha * 0.2})`;
-        ctx.lineWidth = 1;
-        ctx.setLineDash([5, 5]);
+        // Direction line to center with cool color
+        ctx.strokeStyle = `rgba(0, 217, 255, ${alpha * 0.25})`;
+        ctx.lineWidth = 1.2;
+        ctx.setLineDash([6, 4]);
+        ctx.shadowBlur = 3;
+        ctx.shadowColor = `rgba(0, 217, 255, ${alpha * 0.3})`;
         ctx.beginPath();
         ctx.moveTo(centerX, centerY);
         ctx.lineTo(screenX, screenY);
         ctx.stroke();
         ctx.setLineDash([]);
+        ctx.shadowBlur = 0;
       });
 
-      // Draw center point with pulsing effect
-      const centerPulse = 3 + Math.sin(Date.now() / 300) * 2;
-      const centerGradient = ctx.createRadialGradient(
-        centerX, centerY, 0,
-        centerX, centerY, centerPulse * 2
-      );
-      centerGradient.addColorStop(0, 'rgba(0, 255, 136, 1)');
-      centerGradient.addColorStop(0.5, 'rgba(0, 212, 255, 0.6)');
-      centerGradient.addColorStop(1, 'rgba(0, 255, 136, 0)');
-      
-      ctx.fillStyle = centerGradient;
+      // Draw center point (completely static, no blinking)
+      const centerSize = 3;
+      ctx.fillStyle = '#00d9ff';
       ctx.beginPath();
-      ctx.arc(centerX, centerY, centerPulse * 2, 0, Math.PI * 2);
+      ctx.arc(centerX, centerY, centerSize, 0, Math.PI * 2);
       ctx.fill();
       
-      ctx.fillStyle = '#00ff88';
-      ctx.beginPath();
-      ctx.arc(centerX, centerY, centerPulse, 0, Math.PI * 2);
-      ctx.fill();
-      
-      // Center crosshair
-      ctx.strokeStyle = 'rgba(0, 255, 136, 0.5)';
+      // Center crosshair (static)
+      ctx.strokeStyle = 'rgba(0, 217, 255, 0.4)';
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(centerX - 8, centerY);
@@ -442,12 +425,16 @@ const Radar = ({ points = [] }) => {
       ctx.lineTo(centerX, centerY + 8);
       ctx.stroke();
 
-      // Update sweep progress (slower speed)
-      sweepProgressRef.current += 0.008; // Reduced from 0.015 to make it slower
+      // Update sweep progress (faster extending speed)
+      sweepProgressRef.current += 0.003; // Increased speed for faster extending
       if (sweepProgressRef.current > 1) {
         sweepProgressRef.current = 0;
-        // Keep last few sweeps for smooth transition
-        sweepHistoryRef.current = sweepHistoryRef.current.slice(-3);
+        // Clear old sweeps when cycle completes to prevent accumulation
+        sweepHistoryRef.current = [];
+        // Also clear old ripples periodically
+        if (ripplesRef.current.length > 3) {
+          ripplesRef.current = ripplesRef.current.slice(-3);
+        }
       }
 
       animationFrameRef.current = requestAnimationFrame(draw);
@@ -461,6 +448,10 @@ const Radar = ({ points = [] }) => {
         cancelAnimationFrame(animationFrameRef.current);
         animationFrameRef.current = null;
       }
+      // Clean up on unmount to prevent memory leaks
+      sweepHistoryRef.current = [];
+      ripplesRef.current = [];
+      lastDropTimeRef.current = 0;
     };
   }, [points]);
 
@@ -507,7 +498,7 @@ const Radar = ({ points = [] }) => {
     <div ref={containerRef} className="relative flex items-center justify-center w-full h-full min-h-[600px]">
       {/* Outer glow effect */}
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-        <div className="w-full h-full max-w-[90vh] max-h-[90vh] rounded-full bg-radar-primary/5 blur-3xl animate-pulse-slow"></div>
+        <div className="w-full h-full max-w-[90vh] max-h-[90vh] rounded-full bg-radar-primary/5 blur-3xl"></div>
       </div>
       
       <canvas
@@ -516,9 +507,9 @@ const Radar = ({ points = [] }) => {
         width={600}
         height={600}
         style={{
-          background: 'radial-gradient(circle at center, rgba(15, 30, 53, 0.9) 0%, rgba(10, 22, 40, 0.98) 50%, rgba(5, 15, 30, 1) 100%)',
-          border: '2px solid rgba(26, 58, 82, 0.6)',
-          boxShadow: '0 0 60px rgba(0, 255, 136, 0.1), inset 0 0 60px rgba(0, 212, 255, 0.05)',
+          background: 'radial-gradient(circle at center, rgba(10, 20, 40, 0.95) 0%, rgba(8, 15, 35, 0.98) 40%, rgba(5, 10, 25, 0.99) 70%, rgba(3, 5, 15, 1) 100%)',
+          border: '2px solid rgba(0, 217, 255, 0.3)',
+          boxShadow: '0 0 80px rgba(0, 217, 255, 0.12), inset 0 0 80px rgba(124, 58, 237, 0.05)',
           maxWidth: '100%',
           maxHeight: '100%',
           display: 'block',
@@ -528,7 +519,7 @@ const Radar = ({ points = [] }) => {
       <div className="absolute bottom-6 left-6 bg-radar-surface/80 backdrop-blur-md rounded-lg p-3 border border-radar-grid/50 shadow-xl">
         <div className="text-xs font-mono space-y-1">
           <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-radar-primary animate-pulse"></div>
+            <div className="w-2 h-2 rounded-full bg-radar-primary"></div>
             <span className="text-radar-primary font-semibold">ACTIVE</span>
           </div>
           <div className="text-gray-300">

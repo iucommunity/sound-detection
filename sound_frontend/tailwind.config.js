@@ -8,11 +8,16 @@ export default {
     extend: {
       colors: {
         radar: {
-          primary: '#00ff88',
-          secondary: '#00d4ff',
-          grid: '#1a3a52',
-          background: '#0a1628',
-          surface: '#0f1e35',
+          primary: '#00d9ff',
+          secondary: '#7c3aed',
+          accent: '#a855f7',
+          warning: '#f59e0b',
+          grid: '#1e3a5f',
+          background: '#0a0e1a',
+          surface: '#0f172a',
+          glow: '#00d9ff',
+          neon: '#00f0ff',
+          purple: '#8b5cf6',
         },
       },
       animation: {
