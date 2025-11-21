@@ -70,9 +70,22 @@ const Radar = ({ points = [] }) => {
       ctx.fillStyle = bgGradient;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // Draw concentric circles with richer colors
-      for (let i = 1; i <= 5; i++) {
-        const radius = (maxRadius / 5) * i;
+      // Distance ranges: 10m, 100m, 1000m, 10000m, 100000m
+      const distanceRanges = [10, 100, 1000, 10000, 100000];
+      const minDistance = 1; // Minimum distance to display (1m)
+      const maxDistance = 100000; // Maximum distance (100km)
+      
+      // Use logarithmic scale for positioning
+      const logMin = Math.log10(minDistance);
+      const logMax = Math.log10(maxDistance);
+      const logRange = logMax - logMin;
+      
+      // Draw concentric circles representing distance ranges
+      distanceRanges.forEach((distance, i) => {
+        // Calculate radius using logarithmic scale
+        const logDistance = Math.log10(distance);
+        const normalizedPos = (logDistance - logMin) / logRange;
+        const radius = normalizedPos * maxRadius;
         const alpha = 0.4 - (i * 0.06);
         
         // Outer glow with cyan tint
@@ -88,7 +101,38 @@ const Radar = ({ points = [] }) => {
         ctx.beginPath();
         ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
         ctx.stroke();
-      }
+        
+        // Draw distance label on the right side of each circle
+        if (i < distanceRanges.length - 1) { // Don't label the outermost circle
+          const labelX = centerX + radius + 8;
+          const labelY = centerY;
+          ctx.fillStyle = `rgba(0, 217, 255, ${alpha + 0.3})`;
+          ctx.font = '10px monospace';
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'middle';
+          
+          // Format distance label
+          let label = '';
+          if (distance < 1000) {
+            label = `${distance}m`;
+          } else if (distance < 1000000) {
+            label = `${distance / 1000}km`;
+          } else {
+            label = `${distance / 1000000}Mm`;
+          }
+          ctx.fillText(label, labelX, labelY);
+        }
+      });
+      
+      // Label the outermost circle separately
+      const outermostRadius = maxRadius;
+      const labelX = centerX + outermostRadius + 8;
+      const labelY = centerY;
+      ctx.fillStyle = 'rgba(0, 217, 255, 0.5)';
+      ctx.font = '10px monospace';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('100km', labelX, labelY);
 
       // Draw grid lines with richer colors (0° = North at top)
       for (let angle = 0; angle < 360; angle += 30) {
@@ -346,7 +390,14 @@ const Radar = ({ points = [] }) => {
 
       // Draw radar points with enhanced visuals
       points.forEach((point) => {
-        const { x, y } = polarToCartesian(point.direction, point.distance, maxRadius);
+        // Convert actual distance (in meters) to screen radius using logarithmic scale
+        const actualDistance = Math.max(minDistance, Math.min(maxDistance, point.distance || minDistance));
+        const logDistance = Math.log10(actualDistance);
+        const normalizedPos = (logDistance - logMin) / logRange;
+        const screenRadius = normalizedPos * maxRadius;
+        
+        // Use normalized radius (0-1) for polarToCartesian, then scale by screenRadius
+        const { x, y } = polarToCartesian(point.direction, 1.0, screenRadius);
         const screenX = centerX + x;
         const screenY = centerY - y; // Flip Y axis for screen coordinates
 
@@ -562,7 +613,7 @@ const Radar = ({ points = [] }) => {
             <span className="text-gray-500">Points:</span> <span className="text-radar-secondary font-bold">{points.length}</span>
           </div>
           <div className="text-gray-300">
-            <span className="text-gray-500">Range:</span> <span className="text-radar-secondary">0-1.0</span>
+            <span className="text-gray-500">Range:</span> <span className="text-radar-secondary">1m-100km</span>
           </div>
         </div>
       </div>
@@ -570,13 +621,16 @@ const Radar = ({ points = [] }) => {
       {/* Scale indicator */}
       <div className="absolute top-6 right-6 bg-radar-surface/80 backdrop-blur-md rounded-lg p-3 border border-radar-grid/50 shadow-xl">
         <div className="text-xs font-mono space-y-2">
-          <div className="text-gray-400 mb-2">SCALE</div>
-          {[1, 0.75, 0.5, 0.25].map((scale) => (
-            <div key={scale} className="flex items-center gap-2 text-gray-300">
-              <div className="w-8 h-px bg-radar-grid"></div>
-              <span className="text-radar-secondary">{scale.toFixed(2)}</span>
-            </div>
-          ))}
+          <div className="text-gray-400 mb-2">DISTANCE</div>
+          {[100000, 10000, 1000, 100, 10].map((distance) => {
+            const label = distance >= 1000 ? `${distance / 1000}km` : `${distance}m`;
+            return (
+              <div key={distance} className="flex items-center gap-2 text-gray-300">
+                <div className="w-8 h-px bg-radar-grid"></div>
+                <span className="text-radar-secondary">{label}</span>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>
