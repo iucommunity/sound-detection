@@ -43,10 +43,21 @@ function createWindow() {
   
   if (isDev) {
     mainWindow.loadURL('http://localhost:5173');
-    mainWindow.webContents.openDevTools();
+    // Don't open DevTools automatically - user can press F12 to toggle
   } else {
     mainWindow.loadFile(join(__dirname, '../dist/index.html'));
   }
+
+  // Add F12 keyboard shortcut to toggle DevTools
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.key === 'F12') {
+      if (mainWindow.webContents.isDevToolsOpened()) {
+        mainWindow.webContents.closeDevTools();
+      } else {
+        mainWindow.webContents.openDevTools();
+      }
+    }
+  });
 
   mainWindow.on('closed', () => {
     mainWindow = null;
