@@ -56,33 +56,57 @@ function App() {
             }
           };
 
-          ws.onmessage = (event) => {
-            try {
-              const data = JSON.parse(event.data);
-              if (data.points && Array.isArray(data.points)) {
-                // Transform received data to match radar point format
-                const transformedPoints = data.points.map((point, index) => ({
-                  id: point.id || index + 1,
-                  direction: point.direction || point.theta_deg || 0,
-                  distance: point.distance || 0.5,
-                  intensity: point.intensity || point.confidence || 0.5,
-                  timestamp: point.timestamp || Date.now(),
-                  classLabel: point.class_label || 'unknown',
-                  color: point.color || '#00d9ff',
-                }));
-                setPoints(transformedPoints);
-                if (transformedPoints.length > 0) {
-                  console.log(`Received ${transformedPoints.length} point(s) from WebSocket`);
-                }
-              } else {
-                // No points, but keep radar visible (empty array is fine)
-                setPoints([]);
+        ws.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            console.log('📡 WebSocket message received:', data);
+            console.log('  - Timestamp:', data.timestamp);
+            console.log('  - Points count:', data.points ? data.points.length : 0);
+            
+            if (data.points && Array.isArray(data.points)) {
+              // Log each point
+              if (data.points.length > 0) {
+                console.log('  - Points details:');
+                data.points.forEach((point, index) => {
+                  console.log(`    Point ${index + 1}:`, {
+                    id: point.id,
+                    direction: point.direction || point.theta_deg,
+                    distance: point.distance,
+                    intensity: point.intensity || point.confidence,
+                    class_label: point.class_label,
+                    color: point.color,
+                    timestamp: point.timestamp,
+                  });
+                });
               }
-            } catch (error) {
-              console.error('Error parsing WebSocket message:', error);
-              console.error('Raw message:', event.data);
+              
+              // Transform received data to match radar point format
+              const transformedPoints = data.points.map((point, index) => ({
+                id: point.id || index + 1,
+                direction: point.direction || point.theta_deg || 0,
+                distance: point.distance || 0.5,
+                intensity: point.intensity || point.confidence || 0.5,
+                timestamp: point.timestamp || Date.now(),
+                classLabel: point.class_label || 'unknown',
+                color: point.color || '#00d9ff',
+              }));
+              setPoints(transformedPoints);
+              
+              if (transformedPoints.length > 0) {
+                console.log(`✓ Processed ${transformedPoints.length} point(s) and updated radar display`);
+              } else {
+                console.log('  - No points to display (empty array)');
+              }
+            } else {
+              // No points, but keep radar visible (empty array is fine)
+              console.log('  - No points in message, clearing radar display');
+              setPoints([]);
             }
-          };
+          } catch (error) {
+            console.error('✗ Error parsing WebSocket message:', error);
+            console.error('  Raw message:', event.data);
+          }
+        };
 
           ws.onerror = (error) => {
             console.error(`✗ WebSocket error on port ${port}:`, error);

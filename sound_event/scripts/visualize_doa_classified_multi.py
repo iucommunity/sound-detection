@@ -352,6 +352,7 @@ class ClassifiedDOAVisualizer:
                         sep_audio["audio"] = apply_filter(self.sos, sep_audio["audio"], mode="zero_phase")
                         
                 audio_samples = sep_audios[0]["audio"].shape[1]
+                print(f"[Processing] Processing {len(sep_audios)} audio segment(s), {audio_samples} samples")
                 for i in range(0, audio_samples, self.audio_cfg["block_size"]):
                     snapshots = []
                     for sep_audio in sep_audios:
@@ -361,6 +362,7 @@ class ClassifiedDOAVisualizer:
                             # Get tracks from the last frame (most stable)
                             last_result = results[-1]
                             tracks = last_result["tracks"]
+                            print(f"[Processing] Frame {self.pipeline.frame_index}: Found {len(tracks)} track(s)")
                             
                             # Associate class label with tracks
                             classified_tracks = []
@@ -368,6 +370,9 @@ class ClassifiedDOAVisualizer:
                                 track_dict = track.as_dict()
                                 track_dict["class_label"] = sep_audio["class_name"]
                                 classified_tracks.append(track_dict)
+                                print(f"  Track ID {track_dict['id']}: theta={track_dict['theta_deg']:.1f}°, "
+                                      f"confidence={track_dict['confidence']:.2f}, age={track_dict['age']}, "
+                                      f"class={track_dict['class_label']}")
                             
                             # Update snapshot
                             snapshot = {
@@ -376,11 +381,14 @@ class ClassifiedDOAVisualizer:
                                 "timestamp_sec": time.time(),
                                 "class_label": sep_audio["class_name"],
                                 "active_labels": sep_audio["active_names"],
-                                "color":sep_audio["color"]
+                                "color": sep_audio["color"]
                             }
                             snapshots.append(snapshot)
-                    with self._snapshot_lock:
-                        self._latest_snapshots = snapshots
+                    if snapshots:
+                        with self._snapshot_lock:
+                            self._latest_snapshots = snapshots
+                        print(f"[Processing] Updated snapshot with {len(snapshots)} snapshot(s), "
+                              f"total tracks: {sum(len(s['tracks']) for s in snapshots)}")
                 
             except queue.Empty:
                 continue
@@ -446,10 +454,12 @@ class ClassifiedDOAVisualizer:
                 all_track_data = []
                 
                 if snapshots is not None and len(snapshots) > 0:
+                    print(f"[Broadcast] Processing {len(snapshots)} snapshot(s)")
                     for snapshot in snapshots:
                         tracks = snapshot["tracks"]
                         snapshot_time = snapshot["timestamp_sec"]
                         snapshot_color = snapshot.get("color", "#00d9ff")
+                        print(f"  Snapshot has {len(tracks)} track(s)")
                         
                         # Update UI track states
                         active_valid_track_ids = set()
@@ -458,6 +468,8 @@ class ClassifiedDOAVisualizer:
                             track_id = track_dict["id"]
                             
                             if not is_valid_track(track_dict):
+                                print(f"  Track ID {track_id} filtered out: confidence={track_dict.get('confidence', 0):.2f}, "
+                                      f"age={track_dict.get('age', 0)} (min: {MIN_CONFIDENCE_TO_DISPLAY}, {MIN_AGE_TO_DISPLAY})")
                                 continue
                             
                             time_since_snapshot_ms = (current_time - snapshot_time) * 1000
@@ -550,6 +562,12 @@ class ClassifiedDOAVisualizer:
                     "points": all_track_data,
                     "timestamp": int(time.time() * 1000),
                 })
+                
+                if len(all_track_data) > 0:
+                    print(f"[Broadcast] Sending {len(all_track_data)} point(s) to clients")
+                else:
+                    if self.current_frame % 100 == 0:  # Log every 100 frames to avoid spam
+                        print(f"[Broadcast] No points to send (frame {self.current_frame})")
                 
                 # Broadcast to all connected clients
                 with self.websocket_lock:
