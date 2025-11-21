@@ -18,9 +18,10 @@ const PointsHistory = ({ points }) => {
             No points detected
           </div>
         ) : (
-          points.map((point) => (
+          // Show all points - no filtering
+          points.map((point, index) => (
             <div
-              key={point.id}
+              key={point.id || `point-${index}`}
               className="p-4 bg-gradient-to-br from-radar-surface/60 to-radar-surface/40 rounded-xl border border-radar-grid/40 hover:border-radar-primary/50 transition-all duration-300 shadow-md hover:shadow-lg hover:shadow-radar-primary/10 group"
             >
               <div className="flex justify-between items-start mb-3">

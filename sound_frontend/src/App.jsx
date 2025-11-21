@@ -4,7 +4,8 @@ import ControlPanel from './components/ControlPanel';
 import PointsHistory from './components/PointsHistory';
 
 function App() {
-  const [points, setPoints] = useState([]);
+  const [points, setPoints] = useState([]); // Current points for radar display
+  const [pointsHistory, setPointsHistory] = useState([]); // All points ever detected
   const [isRunning, setIsRunning] = useState(true);
   const [isConnected, setIsConnected] = useState(false);
   const wsRef = useRef(null);

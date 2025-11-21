@@ -9,6 +9,12 @@ const Radar = ({ points = [] }) => {
   const sweepHistoryRef = useRef([]);
   const ripplesRef = useRef([]);
   const lastDropTimeRef = useRef(0);
+  const pointsRef = useRef(points); // Store points in ref so animation can access them
+
+  // Update points ref whenever points change
+  useEffect(() => {
+    pointsRef.current = points;
+  }, [points]);
 
   // Initialize and resize canvas
   const initializeCanvas = () => {
@@ -28,33 +34,113 @@ const Radar = ({ points = [] }) => {
     return false;
   };
 
+  // Separate effect for animation loop - always runs regardless of points or WebSocket connection
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    // Initialize canvas size
-    if (!initializeCanvas()) {
-      // Fallback if container not ready
-      canvas.width = 600;
-      canvas.height = 600;
+    if (!canvas) {
+      // Retry if canvas not ready yet
+      const retryTimeout = setTimeout(() => {
+        const retryCanvas = canvasRef.current;
+        if (retryCanvas) {
+          // Force re-render by triggering a state update or re-initialization
+          retryCanvas.width = retryCanvas.width || 600;
+          retryCanvas.height = retryCanvas.height || 600;
+        }
+      }, 100);
+      return () => clearTimeout(retryTimeout);
     }
 
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    // Initialize canvas size - ensure it's always initialized
+    const initCanvas = () => {
+      // Force canvas to be visible
+      canvas.style.display = 'block';
+      canvas.style.visibility = 'visible';
+      canvas.style.opacity = '1';
+      
+      if (!initializeCanvas()) {
+        // Fallback if container not ready
+        const size = 600;
+        canvas.width = size;
+        canvas.height = size;
+      }
+      
+      // Ensure canvas has valid dimensions
+      if (canvas.width <= 0 || canvas.height <= 0) {
+        canvas.width = 600;
+        canvas.height = 600;
+      }
+    };
+    
+    // Initialize immediately
+    initCanvas();
+    
+    // Also initialize after delays to handle DevTools closing and other edge cases
+    const initTimeout1 = setTimeout(initCanvas, 100);
+    const initTimeout2 = setTimeout(initCanvas, 500);
+    const initTimeout3 = setTimeout(initCanvas, 1000);
+    
+    // Periodic check to ensure canvas stays visible (every 2 seconds)
+    const visibilityCheckInterval = setInterval(() => {
+      if (canvas) {
+        initCanvas();
+      }
+    }, 2000);
 
-    // Ensure canvas has valid dimensions
-    if (canvas.width <= 0 || canvas.height <= 0) {
-      console.warn('Canvas has invalid dimensions');
-      return;
-    }
+    let ctx = canvas.getContext('2d');
+    // Don't return early - start animation even if context needs retry
+    // The draw function will handle context reacquisition
 
-    const centerX = canvas.width / 2;
-    const centerY = canvas.height / 2;
-    // Reserve more space for labels (60px instead of 40px)
-    const maxRadius = Math.max(50, Math.min(centerX, centerY) - 60);
+    // Re-check canvas dimensions and context periodically
+    const checkCanvas = () => {
+      if (canvas.width <= 0 || canvas.height <= 0) {
+        initCanvas();
+        ctx = canvas.getContext('2d');
+      }
+      // Also check if context is lost (can happen when DevTools closes)
+      if (!ctx || ctx.canvas !== canvas) {
+        ctx = canvas.getContext('2d');
+      }
+    };
 
     const draw = () => {
-      // Clear canvas with subtle fade effect
+      try {
+        // Always ensure canvas exists and is valid
+        if (!canvas || !canvasRef.current) {
+          animationFrameRef.current = requestAnimationFrame(draw);
+          return;
+        }
+        
+        // Re-check canvas before each draw to handle DevTools closing
+        checkCanvas();
+        
+        if (!ctx) {
+          ctx = canvas.getContext('2d');
+          if (!ctx) {
+            animationFrameRef.current = requestAnimationFrame(draw);
+            return;
+          }
+        }
+
+        // Ensure canvas has valid dimensions before drawing
+        if (canvas.width <= 0 || canvas.height <= 0) {
+          canvas.width = 600;
+          canvas.height = 600;
+        }
+        
+        // Force canvas to be visible on every frame
+        canvas.style.display = 'block';
+        canvas.style.visibility = 'visible';
+        canvas.style.opacity = '1';
+
+        const centerX = canvas.width / 2;
+        const centerY = canvas.height / 2;
+        // Reserve more space for labels (60px instead of 40px)
+        const maxRadius = Math.max(50, Math.min(centerX, centerY) - 60);
+        
+        // Get current points from ref (always up-to-date, works even when WebSocket disconnected)
+        const currentPoints = pointsRef.current || [];
+        
+        // Clear canvas with subtle fade effect - ALWAYS draw, even with no points or disconnected
       ctx.fillStyle = 'rgba(10, 22, 40, 0.95)';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -270,10 +356,14 @@ const Radar = ({ points = [] }) => {
           const ringOpacity = ripple.opacity * (1 - ring * 0.25) * (1 - ringRadius / ripple.maxRadius * 0.5);
           const ringWidth = 2 + ring * 1.5;
           
+          // Ensure inner radius is never negative
+          const innerGradientRadius = Math.max(0, ringRadius - ringWidth);
+          const outerGradientRadius = Math.max(innerGradientRadius + 1, ringRadius + ringWidth);
+          
           // Create gradient for each ring with cool cyan-purple colors
           const ringGradient = ctx.createRadialGradient(
-            centerX, centerY, ringRadius - ringWidth,
-            centerX, centerY, ringRadius + ringWidth
+            centerX, centerY, innerGradientRadius,
+            centerX, centerY, outerGradientRadius
           );
           ringGradient.addColorStop(0, `rgba(0, 217, 255, ${ringOpacity * 0.4})`);
           ringGradient.addColorStop(0.5, `rgba(124, 58, 237, ${ringOpacity * 0.7})`);
@@ -303,18 +393,32 @@ const Radar = ({ points = [] }) => {
         }
       });
 
-      // Update sweep history for trail effect (reduced blinking)
+      // Update sweep history for trail effect - always ensure at least one sweep exists
       const MAX_SWEEPS = 1; // Only one sweep at a time to prevent blinking
       const currentSweep = sweepProgressRef.current * maxRadius;
       
-      // Add new sweep less frequently to reduce blinking
-      if (sweepHistoryRef.current.length === 0 || 
-          currentSweep - sweepHistoryRef.current[sweepHistoryRef.current.length - 1].radius > 5) {
+      // Always ensure at least one sweep exists for continuous animation
+      if (sweepHistoryRef.current.length === 0) {
+        // Initialize sweep if none exists
         sweepHistoryRef.current.push({
           radius: currentSweep,
           opacity: 1,
           time: now
         });
+      } else if (currentSweep - sweepHistoryRef.current[sweepHistoryRef.current.length - 1].radius > 5) {
+        // Add new sweep when it moves far enough
+        sweepHistoryRef.current.push({
+          radius: currentSweep,
+          opacity: 1,
+          time: now
+        });
+      } else {
+        // Update existing sweep to current position
+        sweepHistoryRef.current[sweepHistoryRef.current.length - 1] = {
+          radius: currentSweep,
+          opacity: 1,
+          time: now
+        };
       }
       
       // Remove old sweeps and update opacity - smooth fade as extends
@@ -333,6 +437,15 @@ const Radar = ({ points = [] }) => {
         })
         .filter(sweep => sweep.opacity > 0.05 && sweep.radius <= maxRadius) // Extend to edge
         .slice(-MAX_SWEEPS); // Only keep one sweep to prevent blinking
+      
+      // Ensure at least one sweep exists after filtering
+      if (sweepHistoryRef.current.length === 0) {
+        sweepHistoryRef.current.push({
+          radius: currentSweep,
+          opacity: 1,
+          time: now
+        });
+      }
 
       // Draw extending circle - natural radar sweep effect
       sweepHistoryRef.current.forEach((sweep, index) => {
@@ -342,14 +455,15 @@ const Radar = ({ points = [] }) => {
         
         // Wider trailing fade for more natural look
         const trailWidth = 50;
-        const innerRadius = Math.max(15, sweep.radius - trailWidth);
-        const outerRadius = sweep.radius;
+        const innerRadius = Math.max(0, Math.max(15, sweep.radius - trailWidth)); // Ensure never negative
+        const outerRadius = Math.max(innerRadius + 1, sweep.radius); // Ensure outer > inner
         
         // Natural opacity curve - brighter near leading edge, fades behind
         const baseOpacity = sweep.opacity;
         const fadeProgress = (sweep.radius - innerRadius) / trailWidth; // 0 to 1 across trail width
         
         // Create natural radar sweep gradient - bright leading edge, smooth trailing fade
+        // Ensure both radii are valid (non-negative and outer > inner)
         const gradient = ctx.createRadialGradient(
           centerX,
           centerY,
@@ -388,8 +502,8 @@ const Radar = ({ points = [] }) => {
         ctx.shadowBlur = 0;
       });
 
-      // Draw radar points with enhanced visuals
-      points.forEach((point) => {
+      // Draw radar points with enhanced visuals - use ref to get current points
+      currentPoints.forEach((point) => {
         // Convert actual distance (in meters) to screen radius using logarithmic scale
         const actualDistance = Math.max(minDistance, Math.min(maxDistance, point.distance || minDistance));
         const logDistance = Math.log10(actualDistance);
@@ -402,8 +516,9 @@ const Radar = ({ points = [] }) => {
         const screenY = centerY - y; // Flip Y axis for screen coordinates
 
         // Draw point with intensity-based size and color
-        const baseSize = 5 + point.intensity * 10;
-        const alpha = 0.7 + point.intensity * 0.3;
+        // Ensure baseSize is always positive and reasonable
+        const baseSize = Math.max(3, Math.min(20, 5 + (point.intensity || 0.5) * 10));
+        const alpha = Math.max(0.3, Math.min(1.0, 0.7 + (point.intensity || 0.5) * 0.3));
         const time = Date.now() / 1000;
         
         // Use point color if available, otherwise use default cyan
@@ -512,47 +627,80 @@ const Radar = ({ points = [] }) => {
       ctx.lineTo(centerX, centerY + 8);
       ctx.stroke();
 
-      // Update sweep progress (faster extending speed)
+      // Update sweep progress (faster extending speed) - always keep it running
       sweepProgressRef.current += 0.003; // Increased speed for faster extending
       if (sweepProgressRef.current > 1) {
         sweepProgressRef.current = 0;
-        // Clear old sweeps when cycle completes to prevent accumulation
-        sweepHistoryRef.current = [];
+        // Don't clear sweeps - keep one active sweep for continuous animation
+        // Only reset if sweep history is empty to ensure it's always visible
+        if (sweepHistoryRef.current.length === 0) {
+          sweepHistoryRef.current.push({
+            radius: 0,
+            opacity: 1,
+            time: now
+          });
+        }
         // Also clear old ripples periodically
         if (ripplesRef.current.length > 3) {
           ripplesRef.current = ripplesRef.current.slice(-3);
         }
       }
 
-      animationFrameRef.current = requestAnimationFrame(draw);
+        animationFrameRef.current = requestAnimationFrame(draw);
+      } catch (error) {
+        // Log error but continue animation loop - don't let errors stop the radar
+        console.error('Error in radar draw loop:', error);
+        // Continue animation even if there's an error
+        animationFrameRef.current = requestAnimationFrame(draw);
+      }
     };
 
-    // Start the animation loop
+    // Start the animation loop - ALWAYS runs, regardless of WebSocket connection
+    // This ensures the radar UI is always visible
     draw();
+    
+    // Log that animation started (for debugging)
+    console.log('✓ Radar animation loop started - UI will always be visible');
 
     return () => {
+      clearTimeout(initTimeout1);
+      clearTimeout(initTimeout2);
+      clearTimeout(initTimeout3);
+      clearInterval(visibilityCheckInterval);
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
         animationFrameRef.current = null;
       }
-      // Clean up on unmount to prevent memory leaks
-      sweepHistoryRef.current = [];
+      // Don't clear sweep history on unmount - keep it for continuous animation
+      // Only clear ripples
       ripplesRef.current = [];
       lastDropTimeRef.current = 0;
     };
-  }, [points]);
+  }, []); // Empty dependency array - animation always runs independently
 
-  // Handle canvas resize
+  // Handle canvas resize - ensure canvas is always properly sized
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
     const resizeCanvas = () => {
-      initializeCanvas();
+      // Ensure canvas is initialized
+      if (!initializeCanvas()) {
+        canvas.width = 600;
+        canvas.height = 600;
+      }
+      // Ensure valid dimensions
+      if (canvas.width <= 0 || canvas.height <= 0) {
+        canvas.width = 600;
+        canvas.height = 600;
+      }
     };
 
     // Initial resize with a small delay to ensure DOM is ready
     const timeoutId = setTimeout(resizeCanvas, 100);
+    
+    // Also resize after a longer delay to handle DevTools closing
+    const delayedResizeId = setTimeout(resizeCanvas, 500);
     
     // Use ResizeObserver for better resize handling
     let resizeObserver;
@@ -561,7 +709,7 @@ const Radar = ({ points = [] }) => {
         resizeCanvas();
       });
       
-      const container = canvas.parentElement;
+      const container = canvas.parentElement || containerRef.current;
       if (container) {
         resizeObserver.observe(container);
       }
@@ -574,6 +722,7 @@ const Radar = ({ points = [] }) => {
     
     return () => {
       clearTimeout(timeoutId);
+      clearTimeout(delayedResizeId);
       if (resizeObserver) {
         resizeObserver.disconnect();
       }
