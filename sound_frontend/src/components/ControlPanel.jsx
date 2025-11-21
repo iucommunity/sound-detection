@@ -2,102 +2,164 @@ import React from 'react';
 import { polarToCartesian } from '../data/radarPoints';
 
 const ControlPanel = ({ points, isRunning, onToggleRunning }) => {
+  const avgDistance = points.reduce((sum, p) => sum + p.distance, 0) / points.length || 0;
+  const avgIntensity = points.reduce((sum, p) => sum + p.intensity, 0) / points.length || 0;
+  
   return (
     <div className="h-full flex flex-col p-6 space-y-6 overflow-y-auto">
+      {/* Header */}
+      <div className="pb-4 border-b border-radar-grid/30">
+        <h2 className="text-xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-radar-primary to-radar-secondary">
+          Control Panel
+        </h2>
+        <p className="text-xs text-gray-500 mt-1">System Status & Monitoring</p>
+      </div>
+      
       {/* Controls */}
       <div className="space-y-4">
-        <h2 className="text-lg font-semibold text-radar-primary text-shadow">
+        <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">
           Controls
-        </h2>
+        </h3>
         
         <button
           onClick={onToggleRunning}
-          className={`w-full px-4 py-3 rounded-lg font-medium transition-all duration-200 ${
+          className={`w-full px-4 py-3.5 rounded-xl font-semibold transition-all duration-300 transform hover:scale-105 shadow-lg ${
             isRunning
-              ? 'bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30'
-              : 'bg-radar-primary/20 text-radar-primary border border-radar-primary/30 hover:bg-radar-primary/30'
+              ? 'bg-gradient-to-r from-red-500/20 to-red-600/20 text-red-400 border-2 border-red-500/40 hover:border-red-500/60 hover:shadow-red-500/20'
+              : 'bg-gradient-to-r from-radar-primary/20 to-radar-secondary/20 text-radar-primary border-2 border-radar-primary/40 hover:border-radar-primary/60 hover:shadow-radar-primary/20'
           }`}
         >
-          {isRunning ? '⏸ Pause' : '▶ Resume'}
+          <div className="flex items-center justify-center gap-2">
+            {isRunning ? (
+              <>
+                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 012 0v4a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                </svg>
+                <span>Pause</span>
+              </>
+            ) : (
+              <>
+                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
+                </svg>
+                <span>Resume</span>
+              </>
+            )}
+          </div>
         </button>
       </div>
 
       {/* Statistics */}
       <div className="space-y-4">
-        <h2 className="text-lg font-semibold text-radar-primary text-shadow">
+        <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">
           Statistics
-        </h2>
+        </h3>
         
-        <div className="space-y-2">
-          <div className="flex justify-between items-center p-3 bg-radar-surface/50 rounded-lg border border-radar-grid/30">
-            <span className="text-gray-400 text-sm">Active Points</span>
-            <span className="text-radar-primary font-bold">{points.length}</span>
+        <div className="space-y-3">
+          <div className="p-4 bg-gradient-to-br from-radar-surface/60 to-radar-surface/40 rounded-xl border border-radar-grid/40 shadow-lg hover:border-radar-primary/30 transition-all">
+            <div className="flex justify-between items-center">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-radar-primary/20 flex items-center justify-center">
+                  <svg className="w-5 h-5 text-radar-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                  </svg>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-500">Active Points</div>
+                  <div className="text-2xl font-bold text-radar-primary">{points.length}</div>
+                </div>
+              </div>
+            </div>
           </div>
           
-          <div className="flex justify-between items-center p-3 bg-radar-surface/50 rounded-lg border border-radar-grid/30">
-            <span className="text-gray-400 text-sm">Avg Distance</span>
-            <span className="text-radar-secondary font-bold">
-              {(points.reduce((sum, p) => sum + p.distance, 0) / points.length || 0).toFixed(2)}
-            </span>
+          <div className="p-4 bg-gradient-to-br from-radar-surface/60 to-radar-surface/40 rounded-xl border border-radar-grid/40 shadow-lg hover:border-radar-secondary/30 transition-all">
+            <div className="flex justify-between items-center mb-2">
+              <span className="text-xs text-gray-500">Average Distance</span>
+              <span className="text-lg font-bold text-radar-secondary font-mono">
+                {avgDistance.toFixed(2)}
+              </span>
+            </div>
+            <div className="h-2 bg-radar-grid rounded-full overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-radar-secondary to-radar-primary transition-all duration-500"
+                style={{ width: `${Math.min(100, avgDistance * 100)}%` }}
+              />
+            </div>
           </div>
           
-          <div className="flex justify-between items-center p-3 bg-radar-surface/50 rounded-lg border border-radar-grid/30">
-            <span className="text-gray-400 text-sm">Avg Intensity</span>
-            <span className="text-radar-secondary font-bold">
-              {(points.reduce((sum, p) => sum + p.intensity, 0) / points.length || 0).toFixed(2)}
-            </span>
+          <div className="p-4 bg-gradient-to-br from-radar-surface/60 to-radar-surface/40 rounded-xl border border-radar-grid/40 shadow-lg hover:border-radar-primary/30 transition-all">
+            <div className="flex justify-between items-center mb-2">
+              <span className="text-xs text-gray-500">Average Intensity</span>
+              <span className="text-lg font-bold text-radar-primary font-mono">
+                {avgIntensity.toFixed(2)}
+              </span>
+            </div>
+            <div className="h-2 bg-radar-grid rounded-full overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-radar-primary to-radar-secondary transition-all duration-500"
+                style={{ width: `${avgIntensity * 100}%` }}
+              />
+            </div>
           </div>
         </div>
       </div>
 
       {/* Detected Points */}
-      <div className="space-y-4 flex-1">
-        <h2 className="text-lg font-semibold text-radar-primary text-shadow">
+      <div className="space-y-4 flex-1 min-h-0 flex flex-col">
+        <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">
           Detected Points
-        </h2>
+        </h3>
         
-        <div className="space-y-2 max-h-96 overflow-y-auto">
+        <div className="space-y-2 flex-1 overflow-y-auto pr-2 custom-scrollbar">
           {points.map((point) => (
             <div
               key={point.id}
-              className="p-3 bg-radar-surface/50 rounded-lg border border-radar-grid/30 hover:border-radar-primary/50 transition-colors"
+              className="p-4 bg-gradient-to-br from-radar-surface/60 to-radar-surface/40 rounded-xl border border-radar-grid/40 hover:border-radar-primary/50 transition-all duration-300 shadow-md hover:shadow-lg hover:shadow-radar-primary/10 group"
             >
-              <div className="flex justify-between items-start mb-2">
-                <div className="flex items-center gap-2">
-                  <div
-                    className="w-3 h-3 rounded-full"
-                    style={{
-                      backgroundColor: `rgba(0, 255, 136, ${point.intensity})`,
-                      boxShadow: `0 0 8px rgba(0, 255, 136, ${point.intensity * 0.8})`,
-                    }}
-                  />
-                  <span className="text-sm font-medium text-gray-300">
+              <div className="flex justify-between items-start mb-3">
+                <div className="flex items-center gap-3">
+                  <div className="relative">
+                    <div
+                      className="w-4 h-4 rounded-full animate-pulse"
+                      style={{
+                        backgroundColor: `rgba(0, 255, 136, ${point.intensity})`,
+                        boxShadow: `0 0 12px rgba(0, 255, 136, ${point.intensity * 0.9})`,
+                      }}
+                    />
+                    <div className="absolute inset-0 w-4 h-4 rounded-full bg-radar-primary animate-ping opacity-75"></div>
+                  </div>
+                  <span className="text-sm font-semibold text-gray-300 group-hover:text-radar-primary transition-colors">
                     Point #{point.id}
                   </span>
                 </div>
-                <span className="text-xs text-gray-500">
+                <span className="text-xs text-gray-500 font-mono">
                   {new Date(point.timestamp).toLocaleTimeString()}
                 </span>
               </div>
               
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div>
-                  <span className="text-gray-500">Direction:</span>
-                  <span className="ml-2 text-radar-primary font-mono">
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <div className="p-2 bg-radar-surface/40 rounded-lg">
+                  <div className="text-gray-500 mb-1">Direction</div>
+                  <div className="text-radar-primary font-mono font-bold text-base">
                     {point.direction.toFixed(1)}°
-                  </span>
+                  </div>
                 </div>
-                <div>
-                  <span className="text-gray-500">Distance:</span>
-                  <span className="ml-2 text-radar-secondary font-mono">
+                <div className="p-2 bg-radar-surface/40 rounded-lg">
+                  <div className="text-gray-500 mb-1">Distance</div>
+                  <div className="text-radar-secondary font-mono font-bold text-base">
                     {point.distance.toFixed(2)}
-                  </span>
+                  </div>
                 </div>
                 <div className="col-span-2">
-                  <span className="text-gray-500">Intensity:</span>
-                  <div className="mt-1 h-1.5 bg-radar-grid rounded-full overflow-hidden">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-gray-500">Intensity</span>
+                    <span className="text-radar-primary font-mono font-semibold">
+                      {(point.intensity * 100).toFixed(0)}%
+                    </span>
+                  </div>
+                  <div className="h-2 bg-radar-grid rounded-full overflow-hidden">
                     <div
-                      className="h-full bg-gradient-to-r from-radar-primary to-radar-secondary transition-all"
+                      className="h-full bg-gradient-to-r from-radar-primary via-radar-secondary to-radar-primary transition-all duration-500"
                       style={{ width: `${point.intensity * 100}%` }}
                     />
                   </div>
@@ -109,16 +171,16 @@ const ControlPanel = ({ points, isRunning, onToggleRunning }) => {
       </div>
 
       {/* Legend */}
-      <div className="space-y-2 pt-4 border-t border-radar-grid/30">
-        <h3 className="text-sm font-semibold text-gray-400">Legend</h3>
-        <div className="space-y-1 text-xs text-gray-500">
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-radar-primary" />
-            <span>Detected Sound Source</span>
+      <div className="space-y-3 pt-4 border-t border-radar-grid/30">
+        <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">Legend</h3>
+        <div className="space-y-2 text-xs">
+          <div className="flex items-center gap-3 p-2 bg-radar-surface/40 rounded-lg">
+            <div className="w-3 h-3 rounded-full bg-radar-primary shadow-lg shadow-radar-primary/50" />
+            <span className="text-gray-300">Detected Sound Source</span>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-radar-secondary" />
-            <span>Radar Sweep</span>
+          <div className="flex items-center gap-3 p-2 bg-radar-surface/40 rounded-lg">
+            <div className="w-3 h-3 rounded-full bg-radar-secondary shadow-lg shadow-radar-secondary/50" />
+            <span className="text-gray-300">Radar Sweep</span>
           </div>
         </div>
       </div>
