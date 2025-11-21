@@ -1,7 +1,7 @@
 import React, { useRef, useEffect } from 'react';
 import { polarToCartesian } from '../data/radarPoints';
 
-const Radar = ({ points = [] }) => {
+const Radar = ({ points = [], isRunning = true }) => {
   const canvasRef = useRef(null);
   const animationFrameRef = useRef(null);
   const sweepProgressRef = useRef(0);
@@ -10,11 +10,24 @@ const Radar = ({ points = [] }) => {
   const ripplesRef = useRef([]);
   const lastDropTimeRef = useRef(0);
   const pointsRef = useRef(points); // Store points in ref so animation can access them
+  const isRunningRef = useRef(isRunning); // Store isRunning in ref for animation loop
+  const drawFunctionRef = useRef(null); // Store draw function so it can be restarted
+  const staticFrameIntervalRef = useRef(null); // Store interval for static frame redraw when paused
 
   // Update points ref whenever points change
   useEffect(() => {
     pointsRef.current = points;
-  }, [points]);
+    
+    // If paused, redraw static frame when points change to keep radar visible
+    if (!isRunning && drawFunctionRef.current) {
+      drawFunctionRef.current(true);
+    }
+  }, [points, isRunning]);
+
+  // Update isRunning ref whenever isRunning changes
+  useEffect(() => {
+    isRunningRef.current = isRunning;
+  }, [isRunning]);
 
   // Initialize and resize canvas
   const initializeCanvas = () => {
@@ -102,11 +115,16 @@ const Radar = ({ points = [] }) => {
       }
     };
 
-    const draw = () => {
+    const draw = (isStaticFrame = false) => {
+      // Store draw function in ref for pause/resume
+      drawFunctionRef.current = draw;
+      
       try {
         // Always ensure canvas exists and is valid
         if (!canvas || !canvasRef.current) {
-          animationFrameRef.current = requestAnimationFrame(draw);
+          if (isRunningRef.current && !isStaticFrame) {
+            animationFrameRef.current = requestAnimationFrame(() => draw(false));
+          }
           return;
         }
         
@@ -116,7 +134,9 @@ const Radar = ({ points = [] }) => {
         if (!ctx) {
           ctx = canvas.getContext('2d');
           if (!ctx) {
-            animationFrameRef.current = requestAnimationFrame(draw);
+            if (isRunningRef.current && !isStaticFrame) {
+              animationFrameRef.current = requestAnimationFrame(() => draw(false));
+            }
             return;
           }
         }
@@ -308,38 +328,42 @@ const Radar = ({ points = [] }) => {
         ctx.shadowBlur = 0;
       });
 
-      // Water drop effect - create new ripple periodically
+      // Get current time for all animation calculations
       const now = Date.now();
-      const timeSinceLastDrop = now - lastDropTimeRef.current;
-      // Safety check: don't create new ripples if too many exist
-      if (timeSinceLastDrop > 2000 && ripplesRef.current.length < 3) {
-        ripplesRef.current.push({
-          radius: 0,
-          opacity: 1,
-          time: now,
-          maxRadius: maxRadius,
-          dropTime: now // Track when drop was created
-        });
-        lastDropTimeRef.current = now;
-      }
+      
+      // Water drop effect - create new ripple periodically (only when running)
+      if (!isStaticFrame && isRunningRef.current) {
+        const timeSinceLastDrop = now - lastDropTimeRef.current;
+        // Safety check: don't create new ripples if too many exist
+        if (timeSinceLastDrop > 2000 && ripplesRef.current.length < 3) {
+          ripplesRef.current.push({
+            radius: 0,
+            opacity: 1,
+            time: now,
+            maxRadius: maxRadius,
+            dropTime: now // Track when drop was created
+          });
+          lastDropTimeRef.current = now;
+        }
 
-      // Update water ripples - limit to prevent accumulation
-      const MAX_RIPPLES = 3;
-      ripplesRef.current = ripplesRef.current
-        .map(ripple => {
-          const age = (now - ripple.time) / 1000; // age in seconds
-          const speed = 100; // pixels per second - slower for more visible effect
-          const newRadius = age * speed;
-          const progress = newRadius / ripple.maxRadius;
-          
-          return {
-            ...ripple,
-            radius: newRadius,
-            opacity: Math.max(0, (1 - progress) * 0.7) // Fade out as it expands
-          };
-        })
-        .filter(ripple => ripple.opacity > 0.05 && ripple.radius < ripple.maxRadius * 1.1)
-        .slice(-MAX_RIPPLES); // Keep only the most recent ripples
+        // Update water ripples - limit to prevent accumulation
+        const MAX_RIPPLES = 3;
+        ripplesRef.current = ripplesRef.current
+          .map(ripple => {
+            const age = (now - ripple.time) / 1000; // age in seconds
+            const speed = 100; // pixels per second - slower for more visible effect
+            const newRadius = age * speed;
+            const progress = newRadius / ripple.maxRadius;
+            
+            return {
+              ...ripple,
+              radius: newRadius,
+              opacity: Math.max(0, (1 - progress) * 0.7) // Fade out as it expands
+            };
+          })
+          .filter(ripple => ripple.opacity > 0.05 && ripple.radius < ripple.maxRadius * 1.1)
+          .slice(-MAX_RIPPLES); // Keep only the most recent ripples
+      }
 
       // Water drop effect removed - no blinking at center
 
@@ -393,58 +417,60 @@ const Radar = ({ points = [] }) => {
         }
       });
 
-      // Update sweep history for trail effect - always ensure at least one sweep exists
-      const MAX_SWEEPS = 1; // Only one sweep at a time to prevent blinking
-      const currentSweep = sweepProgressRef.current * maxRadius;
-      
-      // Always ensure at least one sweep exists for continuous animation
-      if (sweepHistoryRef.current.length === 0) {
-        // Initialize sweep if none exists
-        sweepHistoryRef.current.push({
-          radius: currentSweep,
-          opacity: 1,
-          time: now
-        });
-      } else if (currentSweep - sweepHistoryRef.current[sweepHistoryRef.current.length - 1].radius > 5) {
-        // Add new sweep when it moves far enough
-        sweepHistoryRef.current.push({
-          radius: currentSweep,
-          opacity: 1,
-          time: now
-        });
-      } else {
-        // Update existing sweep to current position
-        sweepHistoryRef.current[sweepHistoryRef.current.length - 1] = {
-          radius: currentSweep,
-          opacity: 1,
-          time: now
-        };
-      }
-      
-      // Remove old sweeps and update opacity - smooth fade as extends
-      sweepHistoryRef.current = sweepHistoryRef.current
-        .map(sweep => {
-          const progress = sweep.radius / maxRadius;
-          // Smooth fade: gradual decrease
-          const distanceFade = 1 - (progress * 0.3); // Fade to 70% at edge
-          // Time-based fade for smooth disappearance
-          const age = (now - sweep.time) / 1000; // age in seconds
-          const timeFade = Math.max(0, 1 - (age * 0.3)); // Fade out over 3.3 seconds
-          return {
-            ...sweep,
-            opacity: Math.min(distanceFade, timeFade) // Use the smaller value for gradual fade
+      // Update sweep history for trail effect - only when running
+      if (!isStaticFrame && isRunningRef.current) {
+        const MAX_SWEEPS = 1; // Only one sweep at a time to prevent blinking
+        const currentSweep = sweepProgressRef.current * maxRadius;
+        
+        // Always ensure at least one sweep exists for continuous animation
+        if (sweepHistoryRef.current.length === 0) {
+          // Initialize sweep if none exists
+          sweepHistoryRef.current.push({
+            radius: currentSweep,
+            opacity: 1,
+            time: now
+          });
+        } else if (currentSweep - sweepHistoryRef.current[sweepHistoryRef.current.length - 1].radius > 5) {
+          // Add new sweep when it moves far enough
+          sweepHistoryRef.current.push({
+            radius: currentSweep,
+            opacity: 1,
+            time: now
+          });
+        } else {
+          // Update existing sweep to current position
+          sweepHistoryRef.current[sweepHistoryRef.current.length - 1] = {
+            radius: currentSweep,
+            opacity: 1,
+            time: now
           };
-        })
-        .filter(sweep => sweep.opacity > 0.05 && sweep.radius <= maxRadius) // Extend to edge
-        .slice(-MAX_SWEEPS); // Only keep one sweep to prevent blinking
-      
-      // Ensure at least one sweep exists after filtering
-      if (sweepHistoryRef.current.length === 0) {
-        sweepHistoryRef.current.push({
-          radius: currentSweep,
-          opacity: 1,
-          time: now
-        });
+        }
+        
+        // Remove old sweeps and update opacity - smooth fade as extends
+        sweepHistoryRef.current = sweepHistoryRef.current
+          .map(sweep => {
+            const progress = sweep.radius / maxRadius;
+            // Smooth fade: gradual decrease
+            const distanceFade = 1 - (progress * 0.3); // Fade to 70% at edge
+            // Time-based fade for smooth disappearance
+            const age = (now - sweep.time) / 1000; // age in seconds
+            const timeFade = Math.max(0, 1 - (age * 0.3)); // Fade out over 3.3 seconds
+            return {
+              ...sweep,
+              opacity: Math.min(distanceFade, timeFade) // Use the smaller value for gradual fade
+            };
+          })
+          .filter(sweep => sweep.opacity > 0.05 && sweep.radius <= maxRadius) // Extend to edge
+          .slice(-MAX_SWEEPS); // Only keep one sweep to prevent blinking
+        
+        // Ensure at least one sweep exists after filtering
+        if (sweepHistoryRef.current.length === 0) {
+          sweepHistoryRef.current.push({
+            radius: currentSweep,
+            opacity: 1,
+            time: now
+          });
+        }
       }
 
       // Draw extending circle - natural radar sweep effect
@@ -627,40 +653,46 @@ const Radar = ({ points = [] }) => {
       ctx.lineTo(centerX, centerY + 8);
       ctx.stroke();
 
-      // Update sweep progress (faster extending speed) - always keep it running
-      sweepProgressRef.current += 0.003; // Increased speed for faster extending
-      if (sweepProgressRef.current > 1) {
-        sweepProgressRef.current = 0;
-        // Don't clear sweeps - keep one active sweep for continuous animation
-        // Only reset if sweep history is empty to ensure it's always visible
-        if (sweepHistoryRef.current.length === 0) {
-          sweepHistoryRef.current.push({
-            radius: 0,
-            opacity: 1,
-            time: now
-          });
-        }
-        // Also clear old ripples periodically
-        if (ripplesRef.current.length > 3) {
-          ripplesRef.current = ripplesRef.current.slice(-3);
+      // Update sweep progress only if animation is running (not paused)
+      if (!isStaticFrame && isRunningRef.current) {
+        sweepProgressRef.current += 0.003; // Increased speed for faster extending
+        if (sweepProgressRef.current > 1) {
+          sweepProgressRef.current = 0;
+          // Don't clear sweeps - keep one active sweep for continuous animation
+          // Only reset if sweep history is empty to ensure it's always visible
+          if (sweepHistoryRef.current.length === 0) {
+            sweepHistoryRef.current.push({
+              radius: 0,
+              opacity: 1,
+              time: now
+            });
+          }
+          // Also clear old ripples periodically
+          if (ripplesRef.current.length > 3) {
+            ripplesRef.current = ripplesRef.current.slice(-3);
+          }
         }
       }
 
-        animationFrameRef.current = requestAnimationFrame(draw);
+        // Only continue animation if running and not a static frame
+        if (isRunningRef.current && !isStaticFrame) {
+          animationFrameRef.current = requestAnimationFrame(() => draw(false));
+        }
       } catch (error) {
         // Log error but continue animation loop - don't let errors stop the radar
         console.error('Error in radar draw loop:', error);
-        // Continue animation even if there's an error
-        animationFrameRef.current = requestAnimationFrame(draw);
+        // Continue animation even if there's an error, but only if running and not static
+        if (isRunningRef.current && !isStaticFrame) {
+          animationFrameRef.current = requestAnimationFrame(() => draw(false));
+        }
       }
     };
 
-    // Start the animation loop - ALWAYS runs, regardless of WebSocket connection
-    // This ensures the radar UI is always visible
-    draw();
-    
-    // Log that animation started (for debugging)
-    console.log('✓ Radar animation loop started - UI will always be visible');
+    // Start the animation loop if running
+    if (isRunning) {
+      draw();
+      console.log('✓ Radar animation loop started');
+    }
 
     return () => {
       clearTimeout(initTimeout1);
@@ -676,7 +708,60 @@ const Radar = ({ points = [] }) => {
       ripplesRef.current = [];
       lastDropTimeRef.current = 0;
     };
-  }, []); // Empty dependency array - animation always runs independently
+  }, []); // Empty dependency array - animation setup runs once
+
+  // Separate effect to handle pause/resume
+  useEffect(() => {
+    if (!isRunning) {
+      // Pause animation - cancel the loop
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+      
+      // Clear any existing static frame interval
+      if (staticFrameIntervalRef.current) {
+        clearInterval(staticFrameIntervalRef.current);
+        staticFrameIntervalRef.current = null;
+      }
+      
+      // Draw a static frame immediately
+      if (drawFunctionRef.current) {
+        drawFunctionRef.current(true);
+      }
+      
+      // Set up periodic redraw to keep radar visible when paused
+      // Redraw every 100ms to ensure radar stays visible even with WebSocket updates
+      staticFrameIntervalRef.current = setInterval(() => {
+        if (drawFunctionRef.current && !isRunningRef.current) {
+          drawFunctionRef.current(true);
+        }
+      }, 100);
+      
+      console.log('⏸ Radar animation paused - radar remains visible with periodic redraw');
+    } else {
+      // Resume animation
+      // Clear static frame interval
+      if (staticFrameIntervalRef.current) {
+        clearInterval(staticFrameIntervalRef.current);
+        staticFrameIntervalRef.current = null;
+      }
+      
+      // Restart the animation loop
+      if (!animationFrameRef.current && drawFunctionRef.current) {
+        console.log('✓ Radar animation resumed - restarting draw loop');
+        drawFunctionRef.current(false);
+      }
+    }
+    
+    // Cleanup on unmount or when isRunning changes
+    return () => {
+      if (staticFrameIntervalRef.current) {
+        clearInterval(staticFrameIntervalRef.current);
+        staticFrameIntervalRef.current = null;
+      }
+    };
+  }, [isRunning]);
 
   // Handle canvas resize - ensure canvas is always properly sized
   useEffect(() => {

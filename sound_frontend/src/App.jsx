@@ -269,7 +269,7 @@ function App() {
 
         {/* Radar View */}
         <div className="flex-1 flex items-center justify-center p-8 min-h-0 relative">
-          <Radar points={points} />
+          <Radar points={points} isRunning={isRunning} />
         </div>
 
         {/* Right Panel - Control Panel */}
