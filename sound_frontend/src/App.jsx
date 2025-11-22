@@ -161,8 +161,8 @@ function App() {
               console.log('  - Type: audio');
               const audioDataBase64 = message.data;
               
-              // Audio data is base64-encoded string
-              // Decode base64 to binary, then parse as 16-bit PCM samples
+              // Audio data is base64-encoded float32 bytes from NumPy
+              // Encoding: base64.b64encode(audio.astype(np.float32).tobytes()).decode('ascii')
               try {
                 // Decode base64 to binary string
                 const binaryString = atob(audioDataBase64);
@@ -174,15 +174,15 @@ function App() {
                   uint8Array[i] = binaryString.charCodeAt(i);
                 }
                 
-                // Parse as 16-bit PCM (little-endian)
-                // Each sample is 2 bytes, so we have binaryString.length / 2 samples
-                const samples = new Int16Array(arrayBuffer);
+                // Parse as Float32Array (4 bytes per float32 sample)
+                // The values are already normalized (-1.0 to 1.0) from NumPy
+                const float32Samples = new Float32Array(arrayBuffer);
                 
-                // Convert to normalized float array (-1.0 to 1.0)
-                const audioSamples = Array.from(samples).map(sample => sample / 32768.0);
+                // Convert to regular array (values are already normalized)
+                const audioSamples = Array.from(float32Samples);
                 
                 setAudioData(audioSamples);
-                console.log('  - Audio data decoded:', audioSamples.length, 'samples (16kHz, 1 channel)');
+                console.log('  - Audio data decoded:', audioSamples.length, 'samples (float32, 16kHz, 1 channel)');
                 console.log('  - Sample range:', Math.min(...audioSamples).toFixed(4), 'to', Math.max(...audioSamples).toFixed(4));
               } catch (error) {
                 console.error('  - Error decoding audio data:', error);
@@ -392,7 +392,7 @@ function App() {
         {/* Center Panel - Radar and Sound Amplitude */}
         <div className="flex-1 flex flex-col p-6 min-h-0 relative overflow-y-auto custom-scrollbar">
           {/* Radar View - Moved up */}
-          <div className="flex-shrink-0 flex items-start justify-center pt-5">
+          <div className="flex-shrink-0 flex items-start justify-center pt-4">
             <Radar points={points} isRunning={isRunning} classColors={classColors} />
           </div>
 

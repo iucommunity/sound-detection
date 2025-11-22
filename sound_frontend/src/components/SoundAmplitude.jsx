@@ -8,6 +8,12 @@ const SoundAmplitude = ({ points = [], audioData = null }) => {
   const pointsRef = useRef(points); // Store points in ref to avoid animation restarts
   const audioDataRef = useRef(audioData); // Store audio data in ref
   const audioSamplesRef = useRef([]); // Store processed audio samples
+  const audioBufferRef = useRef([]); // Buffer to accumulate audio samples (10 seconds)
+  const waveformDataRef = useRef([]); // Store waveform data for time-domain display
+  const maxWaveformPoints = 2000; // Number of waveform points to display (for smooth 10-second visualization)
+  const audioSampleRate = 16000; // 16kHz sample rate
+  const bufferDurationSeconds = 10.0; // Buffer duration in seconds (10 seconds for smooth scrolling)
+  const maxBufferSamples = audioSampleRate * bufferDurationSeconds; // 160,000 samples for 10 seconds
 
   // Update refs when props change
   useEffect(() => {
@@ -17,28 +23,35 @@ const SoundAmplitude = ({ points = [], audioData = null }) => {
   useEffect(() => {
     audioDataRef.current = audioData;
     
-    // Process audio data when received
+    // Process audio data when received - accumulate in buffer (1-2 seconds)
     if (audioData && Array.isArray(audioData) && audioData.length > 0) {
       // Audio is 1 channel, 16kHz, normalized float array (-1.0 to 1.0)
-      // Calculate RMS (Root Mean Square) amplitude for each sample window
-      const sampleRate = 16000; // 16kHz
-      const windowSize = 160; // Process in windows of 160 samples (10ms at 16kHz)
-      const samples = [];
+      // Each chunk is about 0.25 seconds (4,000 samples at 16kHz)
       
-      for (let i = 0; i < audioData.length; i += windowSize) {
-        const window = audioData.slice(i, i + windowSize);
-        if (window.length === 0) break;
-        
-        // Calculate RMS (Root Mean Square) - this gives us the amplitude
-        const sumSquares = window.reduce((sum, val) => sum + val * val, 0);
-        const rms = Math.sqrt(sumSquares / window.length);
-        samples.push(rms);
+      // Append new audio data to buffer
+      audioBufferRef.current = [...audioBufferRef.current, ...audioData];
+      
+      // Keep only the most recent 1.5 seconds of data (FIFO)
+      if (audioBufferRef.current.length > maxBufferSamples) {
+        const excess = audioBufferRef.current.length - maxBufferSamples;
+        audioBufferRef.current = audioBufferRef.current.slice(excess);
       }
       
-      audioSamplesRef.current = samples;
-      console.log('[SoundAmplitude] Audio data processed:', audioData.length, 'samples ->', samples.length, 'windows');
-      console.log('[SoundAmplitude] RMS range:', Math.min(...samples).toFixed(4), 'to', Math.max(...samples).toFixed(4));
+      // Downsample the buffered data for display
+      const downsampleFactor = Math.max(1, Math.floor(audioBufferRef.current.length / maxWaveformPoints));
+      const downsampled = [];
+      
+      for (let i = 0; i < audioBufferRef.current.length; i += downsampleFactor) {
+        downsampled.push(audioBufferRef.current[i]);
+      }
+      
+      audioSamplesRef.current = downsampled;
+      
+      const bufferDuration = (audioBufferRef.current.length / audioSampleRate).toFixed(3);
+      console.log('[SoundAmplitude] Audio buffer updated:', audioData.length, 'new samples,', audioBufferRef.current.length, 'total samples (', bufferDuration, 's),', downsampled.length, 'display points');
     } else {
+      // Clear buffer if no audio data
+      audioBufferRef.current = [];
       audioSamplesRef.current = [];
     }
   }, [audioData]);
@@ -64,7 +77,7 @@ const SoundAmplitude = ({ points = [], audioData = null }) => {
       const container = canvas.parentElement;
       if (container) {
         canvas.width = container.clientWidth;
-        canvas.height = 100;
+        canvas.height = 120; // Increased height for better visibility
         console.log('[SoundAmplitude] Canvas resized:', canvas.width, 'x', canvas.height);
       }
     };
@@ -78,8 +91,8 @@ const SoundAmplitude = ({ points = [], audioData = null }) => {
 
       frameCount++;
 
-      // Check if we have audio data (preferred) or points with SPL
-      const hasAudioData = audioDataRef.current && audioDataRef.current.length > 0;
+      // Check if we have audio data in buffer (preferred) or points with SPL
+      const hasAudioData = audioBufferRef.current && audioBufferRef.current.length > 0;
       const currentPoints = pointsRef.current || [];
       
       let avgSpl = 0;
@@ -106,20 +119,21 @@ const SoundAmplitude = ({ points = [], audioData = null }) => {
           // Calculate SPL from RMS amplitude
           // RMS represents the sound pressure level
           // Convert normalized RMS (0-1) to actual pressure
-          // Assuming max RMS of 1.0 corresponds to 1 Pascal (94 dB SPL)
+          // For normalized audio, RMS of 1.0 = full scale
+          // We need to map this to a realistic SPL range
           const P_ref = 20e-6; // Reference pressure (20 μPa)
-          const maxPressure = 1.0; // Maximum pressure for normalized audio (1 Pa = 94 dB)
           
-          // Convert RMS to pressure
-          const pressure = avgAmplitude * maxPressure;
+          // Map RMS to pressure range
+          // RMS of 0.0 -> 30 dB (quiet), RMS of 1.0 -> 120 dB (very loud)
+          // This is a linear mapping for visualization
+          // In reality, you'd need calibration, but for display we use this approximation
+          const minSpl = 30;
+          const maxSpl = 120;
+          const splRange = maxSpl - minSpl;
           
-          // Calculate SPL: SPL = 20 * log10(P / P_ref)
-          if (pressure > 0) {
-            avgSpl = 20 * Math.log10(pressure / P_ref);
-            avgSpl = Math.max(0, Math.min(120, avgSpl)); // Clamp to reasonable range
-          } else {
-            avgSpl = 0;
-          }
+          // Map RMS (0-1) directly to SPL range (30-120 dB)
+          avgSpl = minSpl + (avgAmplitude * splRange);
+          avgSpl = Math.max(minSpl, Math.min(maxSpl, avgSpl)); // Clamp to range
           
           hasRealData = true;
           
@@ -151,19 +165,114 @@ const SoundAmplitude = ({ points = [], audioData = null }) => {
         return;
       }
 
-      // Clear canvas with fade effect for smooth animation
-      ctx.fillStyle = 'rgba(10, 22, 40, 0.4)';
+      // Graph dimensions with padding for axes
+      const paddingLeft = 40;
+      const paddingRight = 10;
+      const paddingTop = 20;
+      const paddingBottom = 25;
+      const graphWidth = canvas.width - paddingLeft - paddingRight;
+      const graphHeight = canvas.height - paddingTop - paddingBottom;
+      const graphX = paddingLeft;
+      const graphY = paddingTop;
+      
+      // Clear canvas with clean background
+      ctx.fillStyle = 'rgba(5, 10, 20, 1)';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // Draw background gradient
-      const bgGradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-      bgGradient.addColorStop(0, 'rgba(10, 20, 40, 0.95)');
-      bgGradient.addColorStop(0.5, 'rgba(8, 15, 35, 0.98)');
-      bgGradient.addColorStop(1, 'rgba(5, 10, 25, 0.99)');
-      ctx.fillStyle = bgGradient;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      const centerY = canvas.height / 2;
+      // Draw graph background
+      ctx.fillStyle = 'rgba(10, 20, 40, 0.5)';
+      ctx.fillRect(graphX, graphY, graphWidth, graphHeight);
+      
+      // Draw grid lines (horizontal - amplitude levels)
+      ctx.strokeStyle = 'rgba(0, 217, 255, 0.08)';
+      ctx.lineWidth = 0.5;
+      const gridLines = 5;
+      for (let i = 0; i <= gridLines; i++) {
+        const y = graphY + (graphHeight / gridLines) * i;
+        ctx.beginPath();
+        ctx.moveTo(graphX, y);
+        ctx.lineTo(graphX + graphWidth, y);
+        ctx.stroke();
+      }
+      
+      // Calculate time window based on buffered audio data
+      // Audio is 16kHz, so each sample is 1/16000 seconds
+      let timeWindowMs = 0;
+      if (hasAudioData && audioBufferRef.current.length > 0) {
+        const numSamples = audioBufferRef.current.length;
+        timeWindowMs = (numSamples / audioSampleRate) * 1000; // Convert to milliseconds
+      }
+      
+      // Draw vertical grid lines (time markers) with time labels
+      const timeMarkers = 10; // More markers for finer time resolution
+      for (let i = 0; i <= timeMarkers; i++) {
+        const x = graphX + (graphWidth / timeMarkers) * i;
+        ctx.beginPath();
+        ctx.moveTo(x, graphY);
+        ctx.lineTo(x, graphY + graphHeight);
+        ctx.stroke();
+        
+        // Add time labels on x-axis (show every other marker to avoid crowding)
+        if (timeWindowMs > 0 && i % 2 === 0) {
+          const timeMs = (timeWindowMs / timeMarkers) * i;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'top';
+          ctx.fillStyle = 'rgba(156, 163, 175, 0.6)';
+          ctx.font = '8px monospace';
+          ctx.fillText(`${timeMs.toFixed(1)}ms`, x, graphY + graphHeight + 2);
+        }
+      }
+      
+      // Draw axes
+      ctx.strokeStyle = 'rgba(0, 217, 255, 0.3)';
+      ctx.lineWidth = 1;
+      
+      // X-axis (bottom)
+      ctx.beginPath();
+      ctx.moveTo(graphX, graphY + graphHeight);
+      ctx.lineTo(graphX + graphWidth, graphY + graphHeight);
+      ctx.stroke();
+      
+      // Y-axis (left)
+      ctx.beginPath();
+      ctx.moveTo(graphX, graphY);
+      ctx.lineTo(graphX, graphY + graphHeight);
+      ctx.stroke();
+      
+      // Draw axis labels
+      ctx.font = '9px monospace';
+      ctx.fillStyle = 'rgba(156, 163, 175, 0.6)';
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      
+      // Use a much larger range so weak noises appear very small and strong sounds appear appropriately sized
+      // Normalized audio samples are typically -1.0 to +1.0, but we use a much larger range
+      // This ensures noise (typically 0.01-0.05) appears tiny, while real sounds (0.3-1.0) appear large
+      const minAmplitude = -1.1;
+      const maxAmplitude = 1.1;
+      const amplitudeRange = maxAmplitude - minAmplitude;
+      
+      // Y-axis labels (amplitude) - dynamic range
+      for (let i = 0; i <= gridLines; i++) {
+        const value = maxAmplitude - (amplitudeRange / gridLines) * i;
+        const y = graphY + (graphHeight / gridLines) * i;
+        ctx.fillText(`${value.toFixed(2)}`, graphX - 8, y);
+      }
+      
+      // X-axis label (only if no time labels shown)
+      if (timeWindowMs === 0) {
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillText('Time', graphX + graphWidth / 2, graphY + graphHeight + 8);
+      }
+      
+      // Y-axis label
+      ctx.save();
+      ctx.translate(15, graphY + graphHeight / 2);
+      ctx.rotate(-Math.PI / 2);
+      ctx.textAlign = 'center';
+      ctx.fillText('Amplitude', 0, 0);
+      ctx.restore();
       
       // If using points SPL (not audio data), calculate amplitude from SPL
       if (!hasAudioData && hasRealData && lastSplRef.current > 0) {
@@ -190,244 +299,138 @@ const SoundAmplitude = ({ points = [], audioData = null }) => {
         }
       }
       
-      // Increment phase for smooth animation
-      phaseRef.current += 0.15;
-      
-      // Calculate normalized SPL for color coding
-      const minSpl = 30;
-      const maxSpl = 120;
-      const normalizedSpl = hasRealData && lastSplRef.current > 0 
-        ? Math.max(0, Math.min(1, (lastSplRef.current - minSpl) / (maxSpl - minSpl)))
-        : 0;
-      
-      // ALWAYS draw waveform if we have real data (audio or SPL)
-      if (hasRealData && (lastSplRef.current > 0 || hasAudioData)) {
-        // Ensure minimum visible amplitude (at least 5 pixels)
-        const minVisibleAmplitude = 5;
-        let displayAmplitude = Math.max(minVisibleAmplitude, amplitude);
+      // Draw waveform if we have audio data
+      if (hasAudioData && audioSamplesRef.current.length > 0) {
+        const audioSamples = audioSamplesRef.current;
         
-        // Draw waveform from audio data if available, otherwise use calculated amplitude
-        if (hasAudioData && audioSamplesRef.current.length > 0) {
-          // Draw waveform directly from processed RMS audio samples
-          const audioSamples = audioSamplesRef.current;
-          const maxSample = Math.max(...audioSamples, 0.001);
-          const avgSample = audioSamples.reduce((a, b) => a + b, 0) / audioSamples.length;
-          
-          const layers = [
-            { alpha: 0.8, thickness: 2.5 },
-            { alpha: 0.5, thickness: 2.0 },
-            { alpha: 0.3, thickness: 1.5 },
-          ];
-          
-          layers.forEach((layer, layerIndex) => {
-            ctx.beginPath();
-            ctx.lineWidth = layer.thickness;
-            
-            // Determine color based on average amplitude
-            const normalizedAvg = avgSample / maxSample;
-            let primaryColor, secondaryColor;
-            
-            if (normalizedAvg > 0.7) {
-              primaryColor = { r: 239, g: 68, b: 68 };
-              secondaryColor = { r: 249, g: 115, b: 22 };
-            } else if (normalizedAvg > 0.4) {
-              primaryColor = { r: 147, g: 51, b: 234 };
-              secondaryColor = { r: 168, g: 85, b: 247 };
-            } else {
-              primaryColor = { r: 0, g: 217, b: 255 };
-              secondaryColor = { r: 56, g: 189, b: 248 };
-            }
-            
-            const gradient = ctx.createLinearGradient(0, 0, canvas.width, 0);
-            gradient.addColorStop(0, `rgba(${primaryColor.r}, ${primaryColor.g}, ${primaryColor.b}, ${layer.alpha})`);
-            gradient.addColorStop(0.5, `rgba(${secondaryColor.r}, ${secondaryColor.g}, ${secondaryColor.b}, ${layer.alpha})`);
-            gradient.addColorStop(1, `rgba(${primaryColor.r}, ${primaryColor.g}, ${primaryColor.b}, ${layer.alpha})`);
-            ctx.strokeStyle = gradient;
-            
-            // Draw waveform from actual RMS audio samples
-            // Each sample represents RMS amplitude in a time window
-            for (let x = 0; x < canvas.width; x += 1) {
-              const sampleIndex = Math.floor((x / canvas.width) * audioSamples.length);
-              const actualIndex = Math.min(sampleIndex, audioSamples.length - 1);
-              
-              const rmsSample = audioSamples[actualIndex] || 0;
-              const normalizedSample = rmsSample / maxSample;
-              
-              // Convert RMS to visual amplitude
-              // RMS already represents amplitude, so use it directly
-              const sampleAmplitude = normalizedSample * (canvas.height * 0.4) * (1 - layerIndex * 0.3);
-              
-              // Draw both positive and negative (mirror) for symmetric waveform
-              const y = centerY - sampleAmplitude;
-              
-              if (x === 0) {
-                ctx.moveTo(x, y);
-              } else {
-                ctx.lineTo(x, y);
-              }
-            }
-            
-            // Draw mirrored bottom half
-            for (let x = canvas.width - 1; x >= 0; x -= 1) {
-              const sampleIndex = Math.floor((x / canvas.width) * audioSamples.length);
-              const actualIndex = Math.min(sampleIndex, audioSamples.length - 1);
-              
-              const rmsSample = audioSamples[actualIndex] || 0;
-              const normalizedSample = rmsSample / maxSample;
-              const sampleAmplitude = normalizedSample * (canvas.height * 0.4) * (1 - layerIndex * 0.3);
-              
-              const y = centerY + sampleAmplitude;
-              ctx.lineTo(x, y);
-            }
-            
-            ctx.closePath();
-            ctx.stroke();
-            ctx.shadowBlur = 0;
-          });
+        // Use the same amplitude range calculated earlier for labels
+        // This ensures the waveform matches the Y-axis labels
+        const amplitudeRange = maxAmplitude - minAmplitude;
+        const centerAmplitude = 0.0; // Center line at 0
+        
+        // Determine line color based on peak amplitude (strength of sound)
+        const peakAmplitude = Math.max(...audioSamples.map(Math.abs));
+        const avgAmplitude = audioSamples.reduce((a, b) => a + Math.abs(b), 0) / audioSamples.length;
+        
+        // Color based on peak amplitude relative to range
+        const normalizedPeak = peakAmplitude / Math.max(1.0, maxAmplitude);
+        let lineColor = 'rgba(0, 217, 255, 1)';
+        if (normalizedPeak > 0.7) {
+          lineColor = 'rgba(239, 68, 68, 1)'; // Strong sound - red
+        } else if (normalizedPeak > 0.4) {
+          lineColor = 'rgba(168, 85, 247, 1)'; // Medium sound - purple
+        } else if (normalizedPeak > 0.1) {
+          lineColor = 'rgba(0, 217, 255, 1)'; // Weak sound - cyan
         } else {
-          // Draw synthetic waveform from calculated amplitude (fallback)
-          const layers = [
-            { frequency: 1.0, alpha: 0.8, thickness: 2.5 },
-            { frequency: 1.5, alpha: 0.5, thickness: 2.0 },
-            { frequency: 2.0, alpha: 0.3, thickness: 1.5 },
-          ];
-          
-          layers.forEach(layer => {
-            ctx.beginPath();
-            ctx.lineWidth = layer.thickness;
-            
-            let primaryColor, secondaryColor;
-            if (normalizedSpl > 0.7) {
-              primaryColor = { r: 239, g: 68, b: 68 };
-              secondaryColor = { r: 249, g: 115, b: 22 };
-            } else if (normalizedSpl > 0.4) {
-              primaryColor = { r: 147, g: 51, b: 234 };
-              secondaryColor = { r: 168, g: 85, b: 247 };
-            } else {
-              primaryColor = { r: 0, g: 217, b: 255 };
-              secondaryColor = { r: 56, g: 189, b: 248 };
-            }
-            
-            const gradient = ctx.createLinearGradient(0, 0, canvas.width, 0);
-            gradient.addColorStop(0, `rgba(${primaryColor.r}, ${primaryColor.g}, ${primaryColor.b}, ${layer.alpha})`);
-            gradient.addColorStop(0.5, `rgba(${secondaryColor.r}, ${secondaryColor.g}, ${secondaryColor.b}, ${layer.alpha})`);
-            gradient.addColorStop(1, `rgba(${primaryColor.r}, ${primaryColor.g}, ${primaryColor.b}, ${layer.alpha})`);
-            ctx.strokeStyle = gradient;
-            
-            for (let x = 0; x < canvas.width; x += 2) {
-              const progress = x / canvas.width;
-              const wave1 = Math.sin((progress * 10 + phaseRef.current * 0.1) * layer.frequency) * displayAmplitude;
-              const wave2 = Math.sin((progress * 20 + phaseRef.current * 0.2) * layer.frequency) * displayAmplitude * 0.3;
-              const wave3 = Math.sin((progress * 30 + phaseRef.current * 0.15) * layer.frequency) * displayAmplitude * 0.15;
-              const noise = (Math.random() - 0.5) * displayAmplitude * 0.1;
-              const y = centerY + wave1 + wave2 + wave3 + noise;
-              
-              if (x === 0) {
-                ctx.moveTo(x, y);
-              } else {
-                ctx.lineTo(x, y);
-              }
-            }
-            
-            ctx.stroke();
-            ctx.shadowBlur = 0;
-          });
+          lineColor = 'rgba(156, 163, 175, 0.6)'; // Very weak/noise - gray
         }
         
-        // Debug: Log that we're drawing
-        if (frameCount % 60 === 0) {
-          console.log('[SoundAmplitude] DRAWING waveform - Audio:', hasAudioData, 'SPL:', lastSplRef.current.toFixed(1), 'dB, Amplitude:', displayAmplitude.toFixed(2), 'px');
-        }
-        
-      } else {
-        // Draw flat line when no data
-        ctx.strokeStyle = 'rgba(0, 217, 255, 0.3)';
-        ctx.lineWidth = 2;
-        ctx.setLineDash([10, 5]);
+        // Draw waveform line
         ctx.beginPath();
-        ctx.moveTo(0, centerY);
-        ctx.lineTo(canvas.width, centerY);
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = lineColor;
+        
+        for (let i = 0; i < audioSamples.length; i++) {
+          const sample = audioSamples[i];
+          // Clamp sample to valid range
+          const clampedSample = Math.max(minAmplitude, Math.min(maxAmplitude, sample));
+          
+          // Calculate X position (time axis - left to right)
+          const x = graphX + (graphWidth / audioSamples.length) * i;
+          
+          // Calculate Y position (amplitude axis)
+          // Center (0.0) is at middle of graph
+          // Positive values go up, negative values go down
+          const normalizedValue = (clampedSample - minAmplitude) / amplitudeRange;
+          const y = graphY + graphHeight - (normalizedValue * graphHeight);
+          
+          if (i === 0) {
+            ctx.moveTo(x, y);
+          } else {
+            ctx.lineTo(x, y);
+          }
+        }
+        
+        ctx.stroke();
+        
+        // Fill area under curve (above center line)
+        ctx.beginPath();
+        for (let i = 0; i < audioSamples.length; i++) {
+          const sample = audioSamples[i];
+          const clampedSample = Math.max(minAmplitude, Math.min(maxAmplitude, sample));
+          const normalizedValue = (clampedSample - minAmplitude) / amplitudeRange;
+          const x = graphX + (graphWidth / audioSamples.length) * i;
+          const y = graphY + graphHeight - (normalizedValue * graphHeight);
+          const centerY = graphY + graphHeight / 2;
+          
+          if (i === 0) {
+            ctx.moveTo(x, centerY);
+          }
+          ctx.lineTo(x, y);
+        }
+        
+        // Close the path
+        const lastX = graphX + (graphWidth / audioSamples.length) * (audioSamples.length - 1);
+        const centerY = graphY + graphHeight / 2;
+        ctx.lineTo(lastX, centerY);
+        ctx.closePath();
+        
+        // Fill with gradient
+        const fillGradient = ctx.createLinearGradient(0, graphY, 0, graphY + graphHeight / 2);
+        fillGradient.addColorStop(0, lineColor.replace('1)', '0.2)'));
+        fillGradient.addColorStop(1, lineColor.replace('1)', '0.05)'));
+        ctx.fillStyle = fillGradient;
+        ctx.fill();
+        
+        // Draw center line (0 amplitude reference)
+        ctx.strokeStyle = 'rgba(0, 217, 255, 0.2)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(graphX, graphY + graphHeight / 2);
+        ctx.lineTo(graphX + graphWidth, graphY + graphHeight / 2);
+        ctx.stroke();
+      } else if (hasRealData && lastSplRef.current > 0) {
+        // Fallback: show flat line if no audio data but have SPL
+        const centerY = graphY + graphHeight / 2;
+        ctx.strokeStyle = 'rgba(0, 217, 255, 0.5)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([5, 5]);
+        ctx.beginPath();
+        ctx.moveTo(graphX, centerY);
+        ctx.lineTo(graphX + graphWidth, centerY);
         ctx.stroke();
         ctx.setLineDash([]);
-        
-        // Add "No Signal" text
-        ctx.font = '12px monospace';
-        ctx.fillStyle = 'rgba(156, 163, 175, 0.5)';
-        ctx.textAlign = 'center';
-        ctx.fillText('NO SIGNAL', canvas.width / 2, centerY - 15);
-        
-        ctx.font = '10px monospace';
-        ctx.fillStyle = 'rgba(156, 163, 175, 0.4)';
-        ctx.fillText('Waiting for SPL data...', canvas.width / 2, centerY + 5);
       }
-      
-      // Draw center reference line
-      ctx.strokeStyle = 'rgba(0, 217, 255, 0.15)';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(0, centerY);
-      ctx.lineTo(canvas.width, centerY);
-      ctx.stroke();
 
-      // Draw current SPL value and amplitude
-      if (hasRealData && lastSplRef.current > 0) {
-        ctx.font = 'bold 20px monospace';
-        ctx.textAlign = 'right';
-        ctx.textBaseline = 'top';
+      // Draw current amplitude display (top-right, above graph)
+      if (hasAudioData && audioSamplesRef.current.length > 0) {
+        const audioSamples = audioSamplesRef.current;
+        const maxAmplitude = Math.max(...audioSamples.map(Math.abs));
+        const avgAmplitude = audioSamples.reduce((a, b) => a + Math.abs(b), 0) / audioSamples.length;
         
-        // Determine color based on SPL level
-        let textColor = 'rgba(0, 217, 255, 1)';
-        if (lastSplRef.current > 90) {
-          textColor = 'rgba(239, 68, 68, 1)';
-        } else if (lastSplRef.current > 70) {
-          textColor = 'rgba(168, 85, 247, 1)';
+        // Determine color based on amplitude
+        let accentColor = 'rgba(0, 217, 255, 1)';
+        if (maxAmplitude > 0.7) {
+          accentColor = 'rgba(239, 68, 68, 1)';
+        } else if (maxAmplitude > 0.4) {
+          accentColor = 'rgba(168, 85, 247, 1)';
         }
         
-        ctx.fillStyle = textColor;
-        ctx.shadowBlur = 15;
-        ctx.shadowColor = textColor;
-        ctx.fillText(`${lastSplRef.current.toFixed(1)} dB`, canvas.width - 15, 10);
-        ctx.shadowBlur = 0;
-
-        // Draw SPL label
-        ctx.font = '9px monospace';
-        ctx.fillStyle = 'rgba(156, 163, 175, 0.8)';
-        ctx.fillText('SPL', canvas.width - 15, 35);
-        
-        // Calculate and display sound pressure
-        const P_ref = 20e-6;
-        const soundPressure = P_ref * Math.pow(10, lastSplRef.current / 20);
-        
-        // Draw sound pressure value
+        // Current amplitude display
         ctx.font = 'bold 14px monospace';
-        ctx.fillStyle = textColor;
-        ctx.textAlign = 'left';
+        ctx.textAlign = 'right';
+        ctx.fillStyle = accentColor;
+        ctx.fillText(`Peak: ${maxAmplitude.toFixed(3)}`, canvas.width - 10, 12);
         
-        let pressureText = '';
-        if (soundPressure < 0.001) {
-          pressureText = `${(soundPressure * 1e6).toFixed(1)} µPa`;
-        } else if (soundPressure < 1) {
-          pressureText = `${(soundPressure * 1000).toFixed(2)} mPa`;
-        } else {
-          pressureText = `${soundPressure.toFixed(3)} Pa`;
-        }
-        
-        ctx.fillText(pressureText, 15, 10);
-        ctx.font = '8px monospace';
-        ctx.fillStyle = 'rgba(156, 163, 175, 0.8)';
-        ctx.fillText('PRESSURE', 15, 30);
-      }
-
-      // Draw reference markers (only when data is present)
-      if (hasRealData) {
-        ctx.font = '8px monospace';
-        ctx.textAlign = 'left';
+        ctx.font = '11px monospace';
+        ctx.fillStyle = 'rgba(156, 163, 175, 0.7)';
+        ctx.fillText(`Avg: ${avgAmplitude.toFixed(3)}`, canvas.width - 10, 26);
+      } else {
+        // No signal indicator
+        ctx.font = '11px monospace';
         ctx.fillStyle = 'rgba(156, 163, 175, 0.4)';
-        
-        // Top marker
-        ctx.fillText('+', 8, 15);
-        // Bottom marker  
-        ctx.fillText('-', 8, canvas.height - 8);
+        ctx.textAlign = 'center';
+        ctx.fillText('NO SIGNAL', graphX + graphWidth / 2, graphY + graphHeight / 2);
       }
 
       animationFrameRef.current = requestAnimationFrame(draw);
@@ -447,37 +450,38 @@ const SoundAmplitude = ({ points = [], audioData = null }) => {
 
   return (
     <div className="w-full flex flex-col">
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-radar-primary/20 to-radar-secondary/20 border border-radar-primary/30 flex items-center justify-center">
-            <svg className="w-5 h-5 text-radar-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      {/* Compact Header */}
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <div className="w-6 h-6 rounded bg-gradient-to-br from-radar-primary/20 to-radar-secondary/20 border border-radar-primary/30 flex items-center justify-center">
+            <svg className="w-3 h-3 text-radar-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
             </svg>
           </div>
           <div>
-            <h3 className="text-lg font-bold text-transparent bg-clip-text bg-gradient-to-r from-radar-primary to-radar-secondary">
-              Sound Amplitude
+            <h3 className="text-sm font-semibold text-gray-200">
+              Audio Waveform
             </h3>
-            <p className="text-xs text-gray-500">Real-time SPL Monitor</p>
+            <p className="text-[10px] text-gray-500 font-mono">16kHz</p>
           </div>
         </div>
-        <div className="flex items-center gap-2 px-3 py-1.5 bg-radar-surface/50 rounded-lg border border-radar-grid/30">
-          <div className="w-2 h-2 rounded-full bg-radar-primary animate-pulse"></div>
-          <span className="text-xs text-gray-400 font-mono">LIVE</span>
+        <div className="flex items-center gap-1.5 px-2 py-1 bg-radar-surface/40 rounded border border-radar-grid/20">
+          <div className="w-1 h-1 rounded-full bg-radar-primary animate-pulse"></div>
+          <span className="text-[10px] text-gray-400 font-mono">LIVE</span>
         </div>
       </div>
       
-      <canvas
-        ref={canvasRef}
-        className="rounded-xl shadow-lg w-full"
-        style={{
-          background: 'radial-gradient(circle at center, rgba(10, 20, 40, 0.95) 0%, rgba(8, 15, 35, 0.98) 40%, rgba(5, 10, 25, 0.99) 70%, rgba(3, 5, 15, 1) 100%)',
-          border: '2px solid rgba(0, 217, 255, 0.3)',
-          boxShadow: '0 0 40px rgba(0, 217, 255, 0.08), inset 0 0 40px rgba(124, 58, 237, 0.05)',
-          height: '100px',
-          display: 'block',
-        }}
-      />
+      {/* Canvas Container */}
+      <div className="relative rounded overflow-hidden border border-radar-grid/30 bg-gradient-to-b from-radar-surface/20 to-radar-surface/10">
+        <canvas
+          ref={canvasRef}
+          className="w-full block"
+          style={{
+            height: '120px',
+            display: 'block',
+          }}
+        />
+      </div>
     </div>
   );
 };
