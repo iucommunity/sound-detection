@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import Radar from './components/Radar';
 import ControlPanel from './components/ControlPanel';
 import PointsHistory from './components/PointsHistory';
+import SoundAmplitude from './components/SoundAmplitude';
 import { getClassColor } from './data/classColors';
 
 function App() {
@@ -12,6 +13,7 @@ function App() {
   const wsRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
   const [classColors, setClassColors] = useState({}); // Track actual colors used for each class
+  const [audioData, setAudioData] = useState(null); // Audio data for sound amplitude simulator
 
   // WebSocket connection
   useEffect(() => {
@@ -61,29 +63,19 @@ function App() {
 
         ws.onmessage = (event) => {
           try {
-            const data = JSON.parse(event.data);
-            console.log('📡 WebSocket message received:', data);
-            console.log('  - Timestamp:', data.timestamp);
-            console.log('  - Points count:', data.points ? data.points.length : 0);
+            console.log('==========event.data==========', event.data);
+            const message = JSON.parse(event.data);
+            console.log('📡 WebSocket message received:', message);
             
-            if (data.points && Array.isArray(data.points)) {
-              // Log each point
-              if (data.points.length > 0) {
-                console.log('  - Points details:');
-                data.points.forEach((point, index) => {
-                  console.log(`    Point ${index + 1}:`, {
-                    id: point.id,
-                    direction: point.direction || point.theta_deg,
-                    distance: point.distance,
-                    intensity: point.intensity || point.confidence,
-                    class_label: point.class_label,
-                    color: point.color,
-                    timestamp: point.timestamp,
-                    spl_db: point.spl_db,
-                  });
-                });
-              }
-              console.log('  - SPL DB:', data.points[0].spl_db);
+            // Handle different message types
+            if (message.type === 'tracks') {
+              // Handle tracks data (points for radar)
+              const data = message.data;
+              console.log('  - Type: tracks');
+              console.log('  - Timestamp:', data.timestamp);
+              console.log('  - Points count:', data.points ? data.points.length : 0);
+              
+              if (data.points && Array.isArray(data.points)) {
               
               // Transform received data to match radar point format
               const newClassColors = {};
@@ -110,7 +102,9 @@ function App() {
                   timestamp: point.timestamp || Date.now(),
                   classLabel: classLabel,
                   color: pointColor, // Use class color from class list
+                  spl_db: point.spl_db || 0, // Sound pressure level (decibels)
                 };
+                console.log('==========spl_db==========', point.spl_db);
               });
               
               // Update class colors state once with all collected colors
@@ -157,10 +151,82 @@ function App() {
               } else {
                 console.log('  - No points to display (empty array)');
               }
+              } else {
+                // No points, but keep radar visible (empty array is fine)
+                console.log('  - No points in message, clearing radar display');
+                setPoints([]);
+              }
+            } else if (message.type === 'audio') {
+              // Handle audio data (for sound amplitude simulator)
+              console.log('  - Type: audio');
+              const audioData = message.data;
+              
+              // Audio data is 1 channel, 16kHz audio
+              // Store it for the sound amplitude component
+              setAudioData(audioData);
+              console.log('  - Audio data received, length:', audioData ? audioData.length : 0);
             } else {
-              // No points, but keep radar visible (empty array is fine)
-              console.log('  - No points in message, clearing radar display');
-              setPoints([]);
+              // Unknown message type or legacy format (no type field)
+              console.warn('  - Unknown message type or legacy format:', message);
+              
+              // Try to handle as legacy format (backward compatibility)
+              if (message.points && Array.isArray(message.points)) {
+                console.log('  - Treating as legacy format with points');
+                // Process as tracks (reuse the tracks logic above)
+                // This is a simplified version - you might want to refactor
+                const data = message;
+                if (data.points && Array.isArray(data.points)) {
+                  // Same transformation logic as tracks above
+                  const newClassColors = {};
+                  const transformedPoints = data.points.map((point, index) => {
+                    const classLabel = point.class_label || 'unknown';
+                    const pointColor = getClassColor(classLabel);
+                    
+                    if (classLabel) {
+                      newClassColors[classLabel] = pointColor;
+                      newClassColors[classLabel.toLowerCase()] = pointColor;
+                      const capitalized = classLabel.charAt(0).toUpperCase() + classLabel.slice(1).toLowerCase();
+                      newClassColors[capitalized] = pointColor;
+                    }
+                    
+                    return {
+                      id: point.id || index + 1,
+                      direction: point.direction || point.theta_deg || 0,
+                      distance: point.distance || 0.5,
+                      intensity: point.intensity || point.confidence || 0.5,
+                      timestamp: point.timestamp || Date.now(),
+                      classLabel: classLabel,
+                      color: pointColor,
+                      spl_db: point.spl_db || 0,
+                    };
+                  });
+                  
+                  if (Object.keys(newClassColors).length > 0) {
+                    setClassColors(prev => ({ ...prev, ...newClassColors }));
+                  }
+                  
+                  setPoints(transformedPoints);
+                  
+                  if (transformedPoints.length > 0) {
+                    setPointsHistory(prevHistory => {
+                      const existingIds = new Set(prevHistory.map(p => p.id));
+                      const newPoints = transformedPoints.filter(p => !existingIds.has(p.id));
+                      const updatedHistory = prevHistory.map(histPoint => {
+                        const currentPoint = transformedPoints.find(p => p.id === histPoint.id);
+                        return currentPoint ? { ...currentPoint, timestamp: currentPoint.timestamp } : histPoint;
+                      });
+                      
+                      if (newPoints.length > 0) {
+                        const combinedHistory = [...newPoints, ...updatedHistory];
+                        combinedHistory.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                        return combinedHistory;
+                      }
+                      
+                      return [...updatedHistory].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                    });
+                  }
+                }
+              }
             }
           } catch (error) {
             console.error('✗ Error parsing WebSocket message:', error);
@@ -297,9 +363,17 @@ function App() {
           <PointsHistory points={pointsHistory} />
         </div>
 
-        {/* Radar View */}
-        <div className="flex-1 flex items-center justify-center p-8 min-h-0 relative">
-          <Radar points={points} isRunning={isRunning} classColors={classColors} />
+        {/* Center Panel - Radar and Sound Amplitude */}
+        <div className="flex-1 flex flex-col p-6 min-h-0 relative overflow-y-auto custom-scrollbar">
+          {/* Radar View - Moved up */}
+          <div className="flex-shrink-0 flex items-start justify-center pt-5">
+            <Radar points={points} isRunning={isRunning} classColors={classColors} />
+          </div>
+
+          {/* Sound Amplitude Visualizer */}
+          <div className="flex-shrink-0 px-8 min-h-[160px]">
+            <SoundAmplitude points={points} audioData={audioData} />
+          </div>
         </div>
 
         {/* Right Panel - Control Panel */}
@@ -316,4 +390,3 @@ function App() {
 }
 
 export default App;
-

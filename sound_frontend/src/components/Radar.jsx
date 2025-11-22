@@ -822,81 +822,85 @@ const Radar = ({ points = [], isRunning = true, classColors = {} }) => {
   }, []);
 
   return (
-    <div ref={containerRef} className="relative flex items-center justify-center w-full h-full min-h-[600px]">
+    <div ref={containerRef} className="relative flex items-start justify-center w-full h-[750px]">
       {/* Outer glow effect */}
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-        <div className="w-full h-full max-w-[90vh] max-h-[90vh] rounded-full bg-radar-primary/5 blur-3xl"></div>
+      <div className="absolute inset-0 flex items-start justify-center pointer-events-none">
+        <div className="w-[750px] h-[750px] rounded-full bg-radar-primary/5 blur-3xl"></div>
       </div>
       
       <canvas
         ref={canvasRef}
         className="rounded-2xl shadow-2xl relative z-10"
-        width={600}
-        height={600}
+        width={700}
+        height={700}
         style={{
           background: 'radial-gradient(circle at center, rgba(10, 20, 40, 0.95) 0%, rgba(8, 15, 35, 0.98) 40%, rgba(5, 10, 25, 0.99) 70%, rgba(3, 5, 15, 1) 100%)',
           border: '2px solid rgba(0, 217, 255, 0.3)',
           boxShadow: '0 0 80px rgba(0, 217, 255, 0.12), inset 0 0 80px rgba(124, 58, 237, 0.05)',
-          maxWidth: '100%',
-          maxHeight: '100%',
+          width: '700px',
+          height: '700px',
           display: 'block',
         }}
       />
-      {/* Overlay info with better styling */}
-      <div className="absolute bottom-6 left-6 bg-radar-surface/80 backdrop-blur-md rounded-lg p-3 border border-radar-grid/50 shadow-xl">
-        <div className="text-xs font-mono space-y-1">
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-radar-primary"></div>
-            <span className="text-radar-primary font-semibold">ACTIVE</span>
-          </div>
-          <div className="text-gray-300">
-            <span className="text-gray-500">Points:</span> <span className="text-radar-secondary font-bold">{points.length}</span>
-          </div>
-          <div className="text-gray-300">
-            <span className="text-gray-500">Range:</span> <span className="text-radar-secondary">1m-100km</span>
+      
+      {/* Distance Scale and Classes - aligned horizontally at same Y position */}
+      <div className="absolute top-6 right-6 flex flex-col gap-3">
+        {/* Scale indicator */}
+        <div className="bg-radar-surface/80 backdrop-blur-md rounded-lg p-3 border border-radar-grid/50 shadow-xl">
+          <div className="text-xs font-mono space-y-2">
+            <div className="text-gray-400 mb-2">DISTANCE</div>
+            {[100000, 10000, 1000, 100, 10].map((distance) => {
+              const label = distance >= 1000 ? `${distance / 1000}km` : `${distance}m`;
+              return (
+                <div key={distance} className="flex items-center gap-2 text-gray-300">
+                  <div className="w-8 h-px bg-radar-grid"></div>
+                  <span className="text-radar-secondary">{label}</span>
+                </div>
+              );
+            })}
           </div>
         </div>
-      </div>
-      
-      {/* Scale indicator */}
-      <div className="absolute top-6 right-6 bg-radar-surface/80 backdrop-blur-md rounded-lg p-3 border border-radar-grid/50 shadow-xl">
-        <div className="text-xs font-mono space-y-2">
-          <div className="text-gray-400 mb-2">DISTANCE</div>
-          {[100000, 10000, 1000, 100, 10].map((distance) => {
-            const label = distance >= 1000 ? `${distance / 1000}km` : `${distance}m`;
-            return (
-              <div key={distance} className="flex items-center gap-2 text-gray-300">
-                <div className="w-8 h-px bg-radar-grid"></div>
-                <span className="text-radar-secondary">{label}</span>
-              </div>
-            );
-          })}
+        
+        {/* Class Legend - aligned with distance scale */}
+        <div className="bg-radar-surface/80 backdrop-blur-md rounded-lg p-2.5 border border-radar-grid/50 shadow-xl">
+          <div className="text-xs font-mono space-y-1">
+            <div className="text-gray-400 mb-1.5 text-[10px]">CLASSES</div>
+            {CLASS_LIST.map((classItem) => {
+              // Use getClassColor as the single source of truth - same function used by radar points and points history
+              // This ensures perfect matching across all three locations
+              // Use getClassColor() instead of classItem.color to ensure it's always up-to-date
+              const actualColor = getClassColor(classItem.name);
+              
+              return (
+                <div key={classItem.name} className="flex items-center gap-2 text-gray-300">
+                  <div
+                    className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                    style={{
+                      backgroundColor: actualColor,
+                      boxShadow: `0 0 6px ${actualColor}80`,
+                    }}
+                  />
+                  <span className="text-[10px] text-gray-300 font-medium">{classItem.name}</span>
+                </div>
+              );
+            })}
+          </div>
         </div>
-      </div>
-      
-      {/* Class Legend - positioned below distance scale with same width, uses actual colors from current points */}
-      <div className="absolute top-6 right-6 bg-radar-surface/80 backdrop-blur-md rounded-lg p-2.5 border border-radar-grid/50 shadow-xl" style={{ marginTop: '180px' }}>
-        <div className="text-xs font-mono space-y-1">
-          <div className="text-gray-400 mb-1.5 text-[10px]">CLASSES</div>
-          {CLASS_LIST.map((classItem) => {
-            // Use getClassColor as the single source of truth - same function used by radar points and points history
-            // This ensures perfect matching across all three locations
-            // Use getClassColor() instead of classItem.color to ensure it's always up-to-date
-            const actualColor = getClassColor(classItem.name);
-            
-            return (
-              <div key={classItem.name} className="flex items-center gap-2 text-gray-300">
-                <div
-                  className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                  style={{
-                    backgroundColor: actualColor,
-                    boxShadow: `0 0 6px ${actualColor}80`,
-                  }}
-                />
-                <span className="text-[10px] text-gray-300 font-medium">{classItem.name}</span>
-              </div>
-            );
-          })}
+        
+        {/* Active Status Panel - moved below classes */}
+        <div className="bg-radar-surface/80 backdrop-blur-md rounded-lg p-3 border border-radar-grid/50 shadow-xl">
+          <div className="text-xs font-mono space-y-1">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-radar-primary"></div>
+              <span className="text-radar-primary font-semibold">ACTIVE</span>
+            </div>
+            <div className="text-gray-300">
+              <span className="text-gray-500">Points:</span> <span className="text-radar-secondary font-bold">{points.length}</span>
+            </div>
+            <div className="text-gray-300">
+              <span className="text-gray-500">Range:</span> <span className="text-radar-secondary">1m-100km</span>
+            </div>
+          </div>
         </div>
       </div>
     </div>
