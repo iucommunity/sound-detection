@@ -18,16 +18,18 @@ const SoundAmplitude = ({ points = [], audioData = null }) => {
     audioDataRef.current = audioData;
     
     // Process audio data when received
-    if (audioData && Array.isArray(audioData)) {
-      // Audio is 1 channel, 16kHz
+    if (audioData && Array.isArray(audioData) && audioData.length > 0) {
+      // Audio is 1 channel, 16kHz, normalized float array (-1.0 to 1.0)
       // Calculate RMS (Root Mean Square) amplitude for each sample window
       const sampleRate = 16000; // 16kHz
-      const windowSize = 100; // Process in windows of 100 samples
+      const windowSize = 160; // Process in windows of 160 samples (10ms at 16kHz)
       const samples = [];
       
       for (let i = 0; i < audioData.length; i += windowSize) {
         const window = audioData.slice(i, i + windowSize);
-        // Calculate RMS
+        if (window.length === 0) break;
+        
+        // Calculate RMS (Root Mean Square) - this gives us the amplitude
         const sumSquares = window.reduce((sum, val) => sum + val * val, 0);
         const rms = Math.sqrt(sumSquares / window.length);
         samples.push(rms);
@@ -35,6 +37,9 @@ const SoundAmplitude = ({ points = [], audioData = null }) => {
       
       audioSamplesRef.current = samples;
       console.log('[SoundAmplitude] Audio data processed:', audioData.length, 'samples ->', samples.length, 'windows');
+      console.log('[SoundAmplitude] RMS range:', Math.min(...samples).toFixed(4), 'to', Math.max(...samples).toFixed(4));
+    } else {
+      audioSamplesRef.current = [];
     }
   }, [audioData]);
 
@@ -85,32 +90,41 @@ const SoundAmplitude = ({ points = [], audioData = null }) => {
         // Use audio data to calculate amplitude
         const audioSamples = audioSamplesRef.current || [];
         if (audioSamples.length > 0) {
-          // Get current sample based on phase (for animation)
-          const sampleIndex = Math.floor((phaseRef.current * 10) % audioSamples.length);
-          const currentSample = audioSamples[sampleIndex] || 0;
+          // Calculate average RMS across all samples for overall amplitude
+          const avgRMS = audioSamples.reduce((a, b) => a + b, 0) / audioSamples.length;
+          const maxRMS = Math.max(...audioSamples);
           
-          // Convert audio sample (0-1 range typically) to visual amplitude
-          // Normalize and scale for display
-          const maxSample = Math.max(...audioSamples, 0.001); // Avoid division by zero
-          const normalizedSample = currentSample / maxSample;
+          // RMS is already the amplitude (0 to 1 for normalized audio)
+          // Use max RMS for peak amplitude, average RMS for average amplitude
+          const peakAmplitude = maxRMS;
+          const avgAmplitude = avgRMS;
           
-          // Convert to pixel height (use 40% of canvas height as maximum)
-          amplitude = normalizedSample * (canvas.height * 0.4);
+          // Convert RMS amplitude to visual height
+          // RMS of 1.0 = maximum amplitude, scale to 40% of canvas height
+          amplitude = peakAmplitude * (canvas.height * 0.4);
           
-          // Calculate SPL from audio amplitude for display
-          // RMS to SPL: SPL = 20 * log10(RMS / P_ref)
-          const P_ref = 20e-6; // Reference pressure
-          // Assume audio samples are normalized, so we need to scale them
-          // Typical audio range: -1 to 1, so RMS can be 0 to 1
-          // Convert to pressure (assuming max RMS of 1 = 1 Pa)
-          const pressure = currentSample * 1.0; // Scale as needed
-          avgSpl = 20 * Math.log10((pressure + P_ref) / P_ref);
-          avgSpl = Math.max(0, Math.min(120, avgSpl)); // Clamp to reasonable range
+          // Calculate SPL from RMS amplitude
+          // RMS represents the sound pressure level
+          // Convert normalized RMS (0-1) to actual pressure
+          // Assuming max RMS of 1.0 corresponds to 1 Pascal (94 dB SPL)
+          const P_ref = 20e-6; // Reference pressure (20 μPa)
+          const maxPressure = 1.0; // Maximum pressure for normalized audio (1 Pa = 94 dB)
+          
+          // Convert RMS to pressure
+          const pressure = avgAmplitude * maxPressure;
+          
+          // Calculate SPL: SPL = 20 * log10(P / P_ref)
+          if (pressure > 0) {
+            avgSpl = 20 * Math.log10(pressure / P_ref);
+            avgSpl = Math.max(0, Math.min(120, avgSpl)); // Clamp to reasonable range
+          } else {
+            avgSpl = 0;
+          }
           
           hasRealData = true;
           
           if (frameCount % 60 === 0) {
-            console.log('[SoundAmplitude] Using audio data - Sample:', currentSample.toFixed(4), 'Amplitude:', amplitude.toFixed(2), 'px, SPL:', avgSpl.toFixed(1), 'dB');
+            console.log('[SoundAmplitude] Using audio data - RMS:', avgAmplitude.toFixed(4), 'Peak:', peakAmplitude.toFixed(4), 'Amplitude:', amplitude.toFixed(2), 'px, SPL:', avgSpl.toFixed(1), 'dB');
           }
         }
       } else if (currentPoints.length > 0) {
@@ -194,9 +208,10 @@ const SoundAmplitude = ({ points = [], audioData = null }) => {
         
         // Draw waveform from audio data if available, otherwise use calculated amplitude
         if (hasAudioData && audioSamplesRef.current.length > 0) {
-          // Draw waveform directly from audio samples
+          // Draw waveform directly from processed RMS audio samples
           const audioSamples = audioSamplesRef.current;
           const maxSample = Math.max(...audioSamples, 0.001);
+          const avgSample = audioSamples.reduce((a, b) => a + b, 0) / audioSamples.length;
           
           const layers = [
             { alpha: 0.8, thickness: 2.5 },
@@ -209,7 +224,6 @@ const SoundAmplitude = ({ points = [], audioData = null }) => {
             ctx.lineWidth = layer.thickness;
             
             // Determine color based on average amplitude
-            const avgSample = audioSamples.reduce((a, b) => a + b, 0) / audioSamples.length;
             const normalizedAvg = avgSample / maxSample;
             let primaryColor, secondaryColor;
             
@@ -230,19 +244,21 @@ const SoundAmplitude = ({ points = [], audioData = null }) => {
             gradient.addColorStop(1, `rgba(${primaryColor.r}, ${primaryColor.g}, ${primaryColor.b}, ${layer.alpha})`);
             ctx.strokeStyle = gradient;
             
-            // Draw waveform from actual audio samples
+            // Draw waveform from actual RMS audio samples
+            // Each sample represents RMS amplitude in a time window
             for (let x = 0; x < canvas.width; x += 1) {
               const sampleIndex = Math.floor((x / canvas.width) * audioSamples.length);
-              const phaseOffset = Math.floor(phaseRef.current * 5) % audioSamples.length;
-              const actualIndex = (sampleIndex + phaseOffset) % audioSamples.length;
+              const actualIndex = Math.min(sampleIndex, audioSamples.length - 1);
               
-              const sample = audioSamples[actualIndex] || 0;
-              const normalizedSample = sample / maxSample;
+              const rmsSample = audioSamples[actualIndex] || 0;
+              const normalizedSample = rmsSample / maxSample;
+              
+              // Convert RMS to visual amplitude
+              // RMS already represents amplitude, so use it directly
               const sampleAmplitude = normalizedSample * (canvas.height * 0.4) * (1 - layerIndex * 0.3);
               
-              // Add harmonics for depth
-              const harmonic = Math.sin((x * 0.1 + phaseRef.current) * (layerIndex + 1)) * sampleAmplitude * 0.2;
-              const y = centerY - sampleAmplitude - harmonic;
+              // Draw both positive and negative (mirror) for symmetric waveform
+              const y = centerY - sampleAmplitude;
               
               if (x === 0) {
                 ctx.moveTo(x, y);
@@ -251,6 +267,20 @@ const SoundAmplitude = ({ points = [], audioData = null }) => {
               }
             }
             
+            // Draw mirrored bottom half
+            for (let x = canvas.width - 1; x >= 0; x -= 1) {
+              const sampleIndex = Math.floor((x / canvas.width) * audioSamples.length);
+              const actualIndex = Math.min(sampleIndex, audioSamples.length - 1);
+              
+              const rmsSample = audioSamples[actualIndex] || 0;
+              const normalizedSample = rmsSample / maxSample;
+              const sampleAmplitude = normalizedSample * (canvas.height * 0.4) * (1 - layerIndex * 0.3);
+              
+              const y = centerY + sampleAmplitude;
+              ctx.lineTo(x, y);
+            }
+            
+            ctx.closePath();
             ctx.stroke();
             ctx.shadowBlur = 0;
           });

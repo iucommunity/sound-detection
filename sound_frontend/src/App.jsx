@@ -159,12 +159,35 @@ function App() {
             } else if (message.type === 'audio') {
               // Handle audio data (for sound amplitude simulator)
               console.log('  - Type: audio');
-              const audioData = message.data;
+              const audioDataBase64 = message.data;
               
-              // Audio data is 1 channel, 16kHz audio
-              // Store it for the sound amplitude component
-              setAudioData(audioData);
-              console.log('  - Audio data received, length:', audioData ? audioData.length : 0);
+              // Audio data is base64-encoded string
+              // Decode base64 to binary, then parse as 16-bit PCM samples
+              try {
+                // Decode base64 to binary string
+                const binaryString = atob(audioDataBase64);
+                
+                // Convert binary string to ArrayBuffer
+                const arrayBuffer = new ArrayBuffer(binaryString.length);
+                const uint8Array = new Uint8Array(arrayBuffer);
+                for (let i = 0; i < binaryString.length; i++) {
+                  uint8Array[i] = binaryString.charCodeAt(i);
+                }
+                
+                // Parse as 16-bit PCM (little-endian)
+                // Each sample is 2 bytes, so we have binaryString.length / 2 samples
+                const samples = new Int16Array(arrayBuffer);
+                
+                // Convert to normalized float array (-1.0 to 1.0)
+                const audioSamples = Array.from(samples).map(sample => sample / 32768.0);
+                
+                setAudioData(audioSamples);
+                console.log('  - Audio data decoded:', audioSamples.length, 'samples (16kHz, 1 channel)');
+                console.log('  - Sample range:', Math.min(...audioSamples).toFixed(4), 'to', Math.max(...audioSamples).toFixed(4));
+              } catch (error) {
+                console.error('  - Error decoding audio data:', error);
+                setAudioData(null);
+              }
             } else {
               // Unknown message type or legacy format (no type field)
               console.warn('  - Unknown message type or legacy format:', message);
