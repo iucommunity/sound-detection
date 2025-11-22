@@ -4,6 +4,7 @@ import ControlPanel from './components/ControlPanel';
 import PointsHistory from './components/PointsHistory';
 import SoundAmplitude from './components/SoundAmplitude';
 import SettingsDialog from './components/SettingsDialog';
+import NotificationContainer from './components/NotificationContainer';
 import { getClassColor } from './data/classColors';
 
 function App() {
@@ -17,6 +18,17 @@ function App() {
   const [audioData, setAudioData] = useState(null); // Audio data for sound amplitude simulator
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [distanceParams, setDistanceParams] = useState(null); // Distance parameters received from WebSocket
+  const [notifications, setNotifications] = useState([]); // Notification messages
+
+  // Notification management functions
+  const showNotification = (message, type = 'info', duration = 2000) => {
+    const id = Date.now() + Math.random();
+    setNotifications((prev) => [...prev, { id, message, type, duration }]);
+  };
+
+  const removeNotification = (id) => {
+    setNotifications((prev) => prev.filter((n) => n.id !== id));
+  };
 
   // Function to send settings data via WebSocket
   // This function gets the current WebSocket directly from the ref to avoid closure issues
@@ -540,6 +552,13 @@ function App() {
         sendSettingsData={sendSettingsData}
         isConnected={isConnected}
         distanceParams={distanceParams}
+        showNotification={showNotification}
+      />
+
+      {/* Notification Container */}
+      <NotificationContainer
+        notifications={notifications}
+        removeNotification={removeNotification}
       />
     </div>
   );

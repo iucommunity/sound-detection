@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { CLASS_LIST } from '../data/classColors';
 import { getClassId, getClassNameFromId } from '../data/classIds';
 
-const SettingsDialog = ({ isOpen, onClose, onSave, sendSettingsData, isConnected, distanceParams }) => {
+const SettingsDialog = ({ isOpen, onClose, onSave, sendSettingsData, isConnected, distanceParams, showNotification }) => {
   const [settings, setSettings] = useState({});
   const hasInitializedRef = useRef(false); // Track if we've initialized from distanceParams
 
@@ -149,48 +149,53 @@ const SettingsDialog = ({ isOpen, onClose, onSave, sendSettingsData, isConnected
     });
 
     if (!hasValidData) {
-      // Use setTimeout to prevent blocking
-      setTimeout(() => {
+      if (showNotification) {
+        showNotification('Please fill all 4 fields with valid numbers for at least one class.', 'warning');
+      } else {
         alert('Please fill all 4 fields with valid numbers for at least one class.');
-      }, 0);
+      }
       return;
     }
 
     // Check if sendSettingsData function is available
     if (!sendSettingsData || typeof sendSettingsData !== 'function') {
       console.error('[SettingsDialog] ✗ sendSettingsData function is not available');
-      setTimeout(() => {
+      if (showNotification) {
+        showNotification('WebSocket send function is not available. Please check the connection.', 'error');
+      } else {
         alert('WebSocket send function is not available. Please check the connection.');
-      }, 0);
+      }
       return;
     }
 
     console.log('[SettingsDialog] Data to send:', dataToSend);
     console.log('[SettingsDialog] Calling sendSettingsData...');
     
-    // Send asynchronously without blocking the UI
+    // Close dialog immediately when Set is pressed
+    onSave();
+    
+    // Send asynchronously and show notification
     sendSettingsData(dataToSend)
       .then((success) => {
         if (success) {
           console.log('[SettingsDialog] ✓ Settings sent successfully');
-          // Close dialog silently on success (no alert, no blocking)
-          onSave();
+          if (showNotification) {
+            showNotification('Settings saved successfully!', 'success');
+          }
         } else {
           console.error('[SettingsDialog] ✗ Failed to send settings after all retries');
           console.error('[SettingsDialog] Check console above for WebSocket state details');
-          // Show error asynchronously to not block UI
-          setTimeout(() => {
-            alert('Failed to send settings. The WebSocket may not be connected. Please check the browser console for details and ensure the connection is active. The dialog will remain open so you can try again.');
-          }, 0);
+          if (showNotification) {
+            showNotification('Failed to send settings. The WebSocket may not be connected. Please check the browser console for details.', 'error');
+          }
         }
       })
       .catch((error) => {
         console.error('[SettingsDialog] ✗ Exception in send promise:', error);
         console.error('[SettingsDialog] Error details:', error.message, error.stack);
-        // Show error asynchronously to not block UI
-        setTimeout(() => {
-          alert(`Error sending settings: ${error.message}. Please check the console for details. The dialog will remain open so you can try again.`);
-        }, 0);
+        if (showNotification) {
+          showNotification(`Error sending settings: ${error.message}. Please check the console for details.`, 'error');
+        }
       });
     
     console.log('[SettingsDialog] ======================================');
