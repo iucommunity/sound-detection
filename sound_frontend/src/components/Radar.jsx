@@ -180,21 +180,39 @@ const Radar = ({ points = [], isRunning = true, classColors = {} }) => {
       ctx.fillStyle = bgGradient;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // Distance ranges: 10m, 100m, 1000m, 10000m, 100000m
-      const distanceRanges = [10, 100, 1000, 10000, 100000];
-      const minDistance = 1; // Minimum distance to display (1m)
-      const maxDistance = 100000; // Maximum distance (100km)
+      // Distance ranges: 5m, 10m, 100m, 500m, 1km
+      const distanceRanges = [5, 10, 100, 500, 1000];
+      const minDistance = 0; // Minimum distance to display (0m)
+      const maxDistance = 1000; // Maximum distance (1km)
       
-      // Use logarithmic scale for positioning
-      const logMin = Math.log10(minDistance);
-      const logMax = Math.log10(maxDistance);
-      const logRange = logMax - logMin;
+      // Custom mapping for circle spacing:
+      // 0-5m and 5m-10m: same small gap
+      // 10m-100m: bigger gap
+      // 100m-500m: bigger gap
+      // 500m-1000m: biggest gap
+      const distanceToRadius = (distance) => {
+        if (distance <= 5) {
+          // 0-5m: linear mapping, small portion
+          return (distance / 5) * 0.1;
+        } else if (distance <= 10) {
+          // 5m-10m: same gap as 0-5m
+          return 0.1 + ((distance - 5) / 5) * 0.1;
+        } else if (distance <= 100) {
+          // 10m-100m: bigger gap
+          return 0.2 + ((distance - 10) / 90) * 0.15;
+        } else if (distance <= 500) {
+          // 100m-500m: bigger gap
+          return 0.35 + ((distance - 100) / 400) * 0.25;
+        } else {
+          // 500m-1000m: biggest gap
+          return 0.6 + ((distance - 500) / 500) * 0.4;
+        }
+      };
       
       // Draw concentric circles representing distance ranges
       distanceRanges.forEach((distance, i) => {
-        // Calculate radius using logarithmic scale
-        const logDistance = Math.log10(distance);
-        const normalizedPos = (logDistance - logMin) / logRange;
+        // Calculate radius using custom mapping
+        const normalizedPos = distanceToRadius(distance);
         const radius = normalizedPos * maxRadius;
         const alpha = 0.4 - (i * 0.06);
         
@@ -214,7 +232,7 @@ const Radar = ({ points = [], isRunning = true, classColors = {} }) => {
         
         // Draw distance label on the right side of each circle
         if (i < distanceRanges.length - 1) { // Don't label the outermost circle
-          const labelX = centerX + radius + 8;
+          const labelX = centerX + radius + 4;
           const labelY = centerY + 10; // Move down by 10px
           ctx.fillStyle = `rgba(0, 217, 255, ${alpha + 0.3})`;
           ctx.font = '10px monospace';
@@ -242,7 +260,7 @@ const Radar = ({ points = [], isRunning = true, classColors = {} }) => {
       ctx.font = '10px monospace';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
-      ctx.fillText('100km', labelX, labelY);
+      ctx.fillText('1km', labelX, labelY);
 
       // Draw grid lines with richer colors (0° = North at top)
       for (let angle = 0; angle < 360; angle += 30) {
@@ -534,10 +552,9 @@ const Radar = ({ points = [], isRunning = true, classColors = {} }) => {
 
       // Draw radar points with enhanced visuals - use ref to get current points
       currentPoints.forEach((point) => {
-        // Convert actual distance (in meters) to screen radius using logarithmic scale
+        // Convert actual distance (in meters) to screen radius using same custom mapping (matches circles)
         const actualDistance = Math.max(minDistance, Math.min(maxDistance, point.distance || minDistance));
-        const logDistance = Math.log10(actualDistance);
-        const normalizedPos = (logDistance - logMin) / logRange;
+        const normalizedPos = distanceToRadius(actualDistance);
         const screenRadius = normalizedPos * maxRadius;
         
         // Use normalized radius (0-1) for polarToCartesian, then scale by screenRadius
@@ -849,7 +866,7 @@ const Radar = ({ points = [], isRunning = true, classColors = {} }) => {
         <div className="bg-radar-surface/80 backdrop-blur-md rounded-lg p-3 border border-radar-grid/50 shadow-xl">
           <div className="text-xs font-mono space-y-2">
             <div className="text-gray-400 mb-2">DISTANCE</div>
-            {[100000, 10000, 1000, 100, 10].map((distance) => {
+            {[1000, 500, 100, 10, 5].map((distance) => {
               const label = distance >= 1000 ? `${distance / 1000}km` : `${distance}m`;
               return (
                 <div key={distance} className="flex items-center gap-2 text-gray-300">
@@ -898,7 +915,7 @@ const Radar = ({ points = [], isRunning = true, classColors = {} }) => {
               <span className="text-gray-500">Points:</span> <span className="text-radar-secondary font-bold">{points.length}</span>
             </div>
             <div className="text-gray-300">
-              <span className="text-gray-500">Range:</span> <span className="text-radar-secondary">1m-100km</span>
+              <span className="text-gray-500">Range:</span> <span className="text-radar-secondary">1m-1km</span>
             </div>
           </div>
         </div>
