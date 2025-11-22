@@ -1,38 +1,81 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { CLASS_LIST } from '../data/classColors';
-import { getClassId } from '../data/classIds';
+import { getClassId, getClassNameFromId } from '../data/classIds';
 
-const SettingsDialog = ({ isOpen, onClose, onSave, wsRef, isConnected }) => {
+const SettingsDialog = ({ isOpen, onClose, onSave, sendSettingsData, isConnected, distanceParams }) => {
   const [settings, setSettings] = useState({});
+  const hasInitializedRef = useRef(false); // Track if we've initialized from distanceParams
 
-  // Debug: Log wsRef when component mounts or dialog opens
+  // Debug: Log when dialog opens
   useEffect(() => {
     if (isOpen) {
-      console.log('[SettingsDialog] Dialog opened, wsRef:', wsRef);
-      console.log('[SettingsDialog] wsRef type:', typeof wsRef);
-      console.log('[SettingsDialog] wsRef.current:', wsRef?.current);
-      if (wsRef?.current) {
-        console.log('[SettingsDialog] WebSocket readyState:', wsRef.current.readyState);
+      console.log('[SettingsDialog] ========== Dialog opened ==========');
+      console.log('[SettingsDialog] sendSettingsData function:', typeof sendSettingsData);
+      console.log('[SettingsDialog] isConnected prop:', isConnected);
+      console.log('[SettingsDialog] distanceParams:', distanceParams);
+      console.log('[SettingsDialog] ====================================');
+    }
+  }, [isOpen, sendSettingsData, isConnected, distanceParams]);
+
+  // Initialize settings state from distanceParams when dialog opens
+  // Only initialize if settings are empty (preserve user changes)
+  useEffect(() => {
+    if (isOpen) {
+      // If settings already exist (user has made changes), preserve them
+      if (Object.keys(settings).length > 0) {
+        console.log('[SettingsDialog] Settings already exist, preserving user changes');
+        return;
+      }
+      
+      // If distanceParams exist, use them as initial values
+      if (distanceParams) {
+        console.log('[SettingsDialog] Initializing settings from distanceParams:', distanceParams);
+        const initialSettings = {};
+        
+        CLASS_LIST.forEach((classItem) => {
+          const classId = getClassId(classItem.name);
+          
+          // Check if we have distance params for this class
+          if (classId && distanceParams[classId]) {
+            // Use received distance params as initial values
+            const params = distanceParams[classId];
+            initialSettings[classItem.name] = {
+              L0_db: params.L0_db !== undefined && params.L0_db !== null ? String(params.L0_db) : '',
+              sigma_L0_db: params.sigma_L0_db !== undefined && params.sigma_L0_db !== null ? String(params.sigma_L0_db) : '',
+              r0_m: params.r0_m !== undefined && params.r0_m !== null ? String(params.r0_m) : '',
+              a_db_per_m: params.a_db_per_m !== undefined && params.a_db_per_m !== null ? String(params.a_db_per_m) : '',
+            };
+            console.log(`[SettingsDialog] ✓ Initialized ${classItem.name} (${classId}):`, initialSettings[classItem.name]);
+          } else {
+            // Use empty values if no distance params available
+            initialSettings[classItem.name] = {
+              L0_db: '',
+              sigma_L0_db: '',
+              r0_m: '',
+              a_db_per_m: '',
+            };
+          }
+        });
+        
+        setSettings(initialSettings);
+        hasInitializedRef.current = true; // Mark as initialized
+        console.log('[SettingsDialog] Settings initialized from distanceParams:', initialSettings);
+      } else {
+        // If no distanceParams and settings are empty, initialize with empty values
+        console.log('[SettingsDialog] No distanceParams, initializing with empty values');
+        const initialSettings = {};
+        CLASS_LIST.forEach((classItem) => {
+          initialSettings[classItem.name] = {
+            L0_db: '',
+            sigma_L0_db: '',
+            r0_m: '',
+            a_db_per_m: '',
+          };
+        });
+        setSettings(initialSettings);
       }
     }
-  }, [isOpen, wsRef]);
-
-  // Initialize settings state when dialog opens
-  useEffect(() => {
-    if (isOpen) {
-      // Initialize empty settings for all classes
-      const initialSettings = {};
-      CLASS_LIST.forEach((classItem) => {
-        initialSettings[classItem.name] = {
-          L0_db: '',
-          sigma_L0_db: '',
-          r0_m: '',
-          a_db_per_m: '',
-        };
-      });
-      setSettings(initialSettings);
-    }
-  }, [isOpen]);
+  }, [isOpen, distanceParams]); // Re-initialize when dialog opens or distanceParams change
 
   const handleInputChange = (className, field, value) => {
     setSettings((prev) => {
@@ -52,7 +95,15 @@ const SettingsDialog = ({ isOpen, onClose, onSave, wsRef, isConnected }) => {
     });
   };
 
-  const handleSet = () => {
+  const handleSet = async (e) => {
+    // Prevent any default behavior and event bubbling
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    
+    console.log('[SettingsDialog] ========== Set button clicked ==========');
+    
     // Build the data object with only classes that have all 4 fields filled
     const dataToSend = {};
     let hasValidData = false;
@@ -62,83 +113,87 @@ const SettingsDialog = ({ isOpen, onClose, onSave, wsRef, isConnected }) => {
       if (
         classSettings &&
         classSettings.L0_db !== '' &&
+        classSettings.L0_db !== null &&
         classSettings.sigma_L0_db !== '' &&
+        classSettings.sigma_L0_db !== null &&
         classSettings.r0_m !== '' &&
-        classSettings.a_db_per_m !== ''
+        classSettings.r0_m !== null &&
+        classSettings.a_db_per_m !== '' &&
+        classSettings.a_db_per_m !== null
       ) {
         const classId = getClassId(classItem.name);
         if (classId) {
-          dataToSend[classId] = {
-            L0_db: parseFloat(classSettings.L0_db),
-            sigma_L0_db: parseFloat(classSettings.sigma_L0_db),
-            r0_m: parseFloat(classSettings.r0_m),
-            a_db_per_m: parseFloat(classSettings.a_db_per_m),
-          };
-          hasValidData = true;
+          // Parse and validate values
+          const L0_db = parseFloat(classSettings.L0_db);
+          const sigma_L0_db = parseFloat(classSettings.sigma_L0_db);
+          const r0_m = parseFloat(classSettings.r0_m);
+          const a_db_per_m = parseFloat(classSettings.a_db_per_m);
+          
+          // Check if values are valid numbers
+          if (!isNaN(L0_db) && !isNaN(sigma_L0_db) && !isNaN(r0_m) && !isNaN(a_db_per_m)) {
+            dataToSend[classId] = {
+              L0_db: L0_db,
+              sigma_L0_db: sigma_L0_db,
+              r0_m: r0_m,
+              a_db_per_m: a_db_per_m,
+            };
+            hasValidData = true;
+            console.log(`[SettingsDialog] ✓ Added ${classItem.name} (${classId}):`, dataToSend[classId]);
+          } else {
+            console.warn(`[SettingsDialog] ⚠ Invalid numbers for ${classItem.name}, skipping`);
+          }
+        } else {
+          console.warn(`[SettingsDialog] ⚠ No class ID found for ${classItem.name}, skipping`);
         }
       }
     });
 
     if (!hasValidData) {
-      alert('Please fill all 4 fields for at least one class.');
+      // Use setTimeout to prevent blocking
+      setTimeout(() => {
+        alert('Please fill all 4 fields with valid numbers for at least one class.');
+      }, 0);
       return;
     }
 
-    // Check WebSocket connection - use the same WebSocket that receives points data
-    console.log('[SettingsDialog] Checking WebSocket connection...');
-    console.log('[SettingsDialog] wsRef:', wsRef);
-    console.log('[SettingsDialog] wsRef type:', typeof wsRef);
-    console.log('[SettingsDialog] wsRef.current:', wsRef?.current);
-    console.log('[SettingsDialog] isConnected prop:', isConnected);
-    
-    // Check if wsRef exists (it's a ref object, so it should always exist if passed)
-    if (!wsRef) {
-      console.error('[SettingsDialog] wsRef prop is not provided');
-      alert('WebSocket reference is not available. Please check the connection.');
-      return;
-    }
-    
-    // Check if wsRef.current exists (this is the actual WebSocket instance)
-    // This is the most important check - if this is null, the WebSocket isn't stored in the ref
-    if (!wsRef.current) {
-      console.error('[SettingsDialog] wsRef.current is null/undefined');
-      console.error('[SettingsDialog] This means the WebSocket instance is not stored in wsRef.current');
-      console.error('[SettingsDialog] isConnected state:', isConnected);
-      alert('WebSocket is not initialized. The WebSocket connection exists but is not accessible. Please check the console for details.');
-      return;
-    }
-    
-    // Get the WebSocket instance
-    const ws = wsRef.current;
-    
-    // Check connection state
-    const readyState = ws.readyState;
-    console.log('[SettingsDialog] WebSocket readyState:', readyState);
-    console.log('[SettingsDialog] WebSocket.OPEN constant:', WebSocket.OPEN);
-    console.log('[SettingsDialog] WebSocket instance:', ws);
-
-    if (readyState !== WebSocket.OPEN) {
-      const stateNames = {
-        0: 'CONNECTING',
-        1: 'OPEN',
-        2: 'CLOSING',
-        3: 'CLOSED'
-      };
-      console.error(`[SettingsDialog] WebSocket is not OPEN. Current state: ${readyState} (${stateNames[readyState] || 'UNKNOWN'})`);
-      alert(`WebSocket is not connected. Current state: ${stateNames[readyState] || readyState}. Please wait for the connection to be established.`);
+    // Check if sendSettingsData function is available
+    if (!sendSettingsData || typeof sendSettingsData !== 'function') {
+      console.error('[SettingsDialog] ✗ sendSettingsData function is not available');
+      setTimeout(() => {
+        alert('WebSocket send function is not available. Please check the connection.');
+      }, 0);
       return;
     }
 
-    try {
-      // Send data as JSON via websocket - same connection that receives points
-      console.log('[SettingsDialog] Sending settings via WebSocket:', dataToSend);
-      ws.send(JSON.stringify(dataToSend));
-      console.log('[SettingsDialog] Settings sent successfully');
-      onSave();
-    } catch (error) {
-      console.error('[SettingsDialog] Error sending settings via WebSocket:', error);
-      alert(`Error sending settings: ${error.message}`);
-    }
+    console.log('[SettingsDialog] Data to send:', dataToSend);
+    console.log('[SettingsDialog] Calling sendSettingsData...');
+    
+    // Send asynchronously without blocking the UI
+    sendSettingsData(dataToSend)
+      .then((success) => {
+        if (success) {
+          console.log('[SettingsDialog] ✓ Settings sent successfully');
+          // Close dialog silently on success (no alert, no blocking)
+          onSave();
+        } else {
+          console.error('[SettingsDialog] ✗ Failed to send settings after all retries');
+          console.error('[SettingsDialog] Check console above for WebSocket state details');
+          // Show error asynchronously to not block UI
+          setTimeout(() => {
+            alert('Failed to send settings. The WebSocket may not be connected. Please check the browser console for details and ensure the connection is active. The dialog will remain open so you can try again.');
+          }, 0);
+        }
+      })
+      .catch((error) => {
+        console.error('[SettingsDialog] ✗ Exception in send promise:', error);
+        console.error('[SettingsDialog] Error details:', error.message, error.stack);
+        // Show error asynchronously to not block UI
+        setTimeout(() => {
+          alert(`Error sending settings: ${error.message}. Please check the console for details. The dialog will remain open so you can try again.`);
+        }, 0);
+      });
+    
+    console.log('[SettingsDialog] ======================================');
   };
 
   if (!isOpen) return null;
@@ -193,9 +248,13 @@ const SettingsDialog = ({ isOpen, onClose, onSave, wsRef, isConnected }) => {
                         type="number"
                         step="any"
                         value={classSettings.L0_db || ''}
-                        onChange={(e) => handleInputChange(classItem.name, 'L0_db', e.target.value)}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          handleInputChange(classItem.name, 'L0_db', e.target.value);
+                        }}
                         onClick={(e) => e.stopPropagation()}
                         onFocus={(e) => e.stopPropagation()}
+                        onMouseDown={(e) => e.stopPropagation()}
                         className="w-full px-3 py-2 bg-radar-surface/80 border border-radar-grid/50 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-radar-primary/50 focus:border-transparent"
                         placeholder="e.g., 95.0"
                       />
@@ -206,9 +265,13 @@ const SettingsDialog = ({ isOpen, onClose, onSave, wsRef, isConnected }) => {
                         type="number"
                         step="any"
                         value={classSettings.sigma_L0_db || ''}
-                        onChange={(e) => handleInputChange(classItem.name, 'sigma_L0_db', e.target.value)}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          handleInputChange(classItem.name, 'sigma_L0_db', e.target.value);
+                        }}
                         onClick={(e) => e.stopPropagation()}
                         onFocus={(e) => e.stopPropagation()}
+                        onMouseDown={(e) => e.stopPropagation()}
                         className="w-full px-3 py-2 bg-radar-surface/80 border border-radar-grid/50 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-radar-primary/50 focus:border-transparent"
                         placeholder="e.g., 5.0"
                       />
@@ -219,9 +282,13 @@ const SettingsDialog = ({ isOpen, onClose, onSave, wsRef, isConnected }) => {
                         type="number"
                         step="any"
                         value={classSettings.r0_m || ''}
-                        onChange={(e) => handleInputChange(classItem.name, 'r0_m', e.target.value)}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          handleInputChange(classItem.name, 'r0_m', e.target.value);
+                        }}
                         onClick={(e) => e.stopPropagation()}
                         onFocus={(e) => e.stopPropagation()}
+                        onMouseDown={(e) => e.stopPropagation()}
                         className="w-full px-3 py-2 bg-radar-surface/80 border border-radar-grid/50 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-radar-primary/50 focus:border-transparent"
                         placeholder="e.g., 50.0"
                       />
@@ -232,9 +299,13 @@ const SettingsDialog = ({ isOpen, onClose, onSave, wsRef, isConnected }) => {
                         type="number"
                         step="any"
                         value={classSettings.a_db_per_m || ''}
-                        onChange={(e) => handleInputChange(classItem.name, 'a_db_per_m', e.target.value)}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          handleInputChange(classItem.name, 'a_db_per_m', e.target.value);
+                        }}
                         onClick={(e) => e.stopPropagation()}
                         onFocus={(e) => e.stopPropagation()}
+                        onMouseDown={(e) => e.stopPropagation()}
                         className="w-full px-3 py-2 bg-radar-surface/80 border border-radar-grid/50 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-radar-primary/50 focus:border-transparent"
                         placeholder="e.g., 0.001"
                       />
@@ -255,7 +326,12 @@ const SettingsDialog = ({ isOpen, onClose, onSave, wsRef, isConnected }) => {
             Cancel
           </button>
           <button
-            onClick={handleSet}
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              handleSet(e);
+            }}
             className="px-6 py-2.5 bg-gradient-to-r from-radar-primary to-radar-secondary rounded-lg text-white hover:shadow-lg hover:shadow-radar-primary/50 transition-all font-medium"
           >
             Set

@@ -16,3 +16,13 @@ export const getClassId = (className) => {
   return CLASS_IDS[className] || null;
 };
 
+// Get class name from class ID (reverse lookup)
+export const getClassNameFromId = (classId) => {
+  for (const [className, id] of Object.entries(CLASS_IDS)) {
+    if (id === classId) {
+      return className;
+    }
+  }
+  return null;
+};
+

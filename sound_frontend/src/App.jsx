@@ -16,6 +16,108 @@ function App() {
   const [classColors, setClassColors] = useState({}); // Track actual colors used for each class
   const [audioData, setAudioData] = useState(null); // Audio data for sound amplitude simulator
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [distanceParams, setDistanceParams] = useState(null); // Distance parameters received from WebSocket
+
+  // Function to send settings data via WebSocket
+  // This function gets the current WebSocket directly from the ref to avoid closure issues
+  const sendSettingsData = (data) => {
+    return new Promise((resolve) => {
+      console.log('[App] ========== sendSettingsData called ==========');
+      console.log('[App] Data to send:', data);
+      console.log('[App] isConnected state:', isConnected);
+      
+      // Get WebSocket directly from ref (fresh access, not from closure)
+      const getWebSocket = () => {
+        if (!wsRef) {
+          console.error('[App] ✗ wsRef is null');
+          return null;
+        }
+        if (!wsRef.current) {
+          console.error('[App] ✗ wsRef.current is null');
+          return null;
+        }
+        return wsRef.current;
+      };
+      
+      // Try to get WebSocket with retries (handles timing issues)
+      const attemptSend = (retryCount = 0) => {
+        const MAX_RETRIES = 3;
+        const RETRY_DELAY = 100;
+        
+        const ws = getWebSocket();
+        
+        if (!ws) {
+          if (retryCount < MAX_RETRIES) {
+            console.warn(`[App] ⚠ WebSocket not available, retrying in ${RETRY_DELAY}ms (attempt ${retryCount + 1}/${MAX_RETRIES})...`);
+            setTimeout(() => attemptSend(retryCount + 1), RETRY_DELAY);
+            return;
+          }
+          console.error('[App] ✗ WebSocket not available after retries');
+          resolve(false);
+          return;
+        }
+        
+        const readyState = ws.readyState;
+        const stateNames = { 
+          0: 'CONNECTING', 
+          1: 'OPEN', 
+          2: 'CLOSING', 
+          3: 'CLOSED' 
+        };
+        
+        console.log('[App] WebSocket found');
+        console.log('[App] WebSocket readyState:', readyState, `(${stateNames[readyState] || 'UNKNOWN'})`);
+        console.log('[App] WebSocket URL:', ws.url);
+        console.log('[App] isConnected state:', isConnected);
+        console.log('[App] readyState === OPEN:', readyState === WebSocket.OPEN);
+        
+        // Check if WebSocket is OPEN
+        if (readyState !== WebSocket.OPEN) {
+          if (retryCount < MAX_RETRIES && readyState === WebSocket.CONNECTING) {
+            console.warn(`[App] ⚠ WebSocket is CONNECTING, retrying in ${RETRY_DELAY * 2}ms...`);
+            setTimeout(() => attemptSend(retryCount + 1), RETRY_DELAY * 2);
+            return;
+          }
+          console.error('[App] ✗ WebSocket is not OPEN');
+          console.error('[App] Current state:', readyState, `(${stateNames[readyState] || 'UNKNOWN'})`);
+          console.error('[App] Expected state: 1 (OPEN)');
+          resolve(false);
+          return;
+        }
+        
+        // WebSocket is OPEN - send data
+        try {
+          const jsonData = JSON.stringify(data);
+          console.log('[App] ✓ WebSocket is OPEN, sending data...');
+          console.log('[App] JSON data:', jsonData);
+          
+          // Get fresh WebSocket reference right before sending (avoid stale reference)
+          const currentWs = getWebSocket();
+          if (!currentWs || currentWs.readyState !== WebSocket.OPEN) {
+            console.error('[App] ✗ WebSocket state changed between check and send');
+            resolve(false);
+            return;
+          }
+          
+          currentWs.send(jsonData);
+          
+          console.log('[App] ✓✓✓ Data sent successfully via WebSocket ✓✓✓');
+          console.log('[App] ===========================================');
+          resolve(true);
+        } catch (error) {
+          console.error('[App] ✗✗✗ Exception thrown while sending ✗✗✗');
+          console.error('[App] Error:', error);
+          console.error('[App] Error message:', error.message);
+          console.error('[App] WebSocket readyState at error:', ws.readyState);
+          console.log('[App] ===========================================');
+          resolve(false);
+        }
+      };
+      
+      // Start attempt
+      attemptSend();
+    });
+  };
 
   // WebSocket connection
   useEffect(() => {
@@ -55,6 +157,9 @@ function App() {
 
           ws.onopen = () => {
             console.log(`✓ WebSocket connected to ${wsUrl}`);
+            // IMPORTANT: Set the ref INSIDE onopen to ensure it's set when connection is ready
+            wsRef.current = ws;
+            console.log('[App] wsRef.current set in onopen handler');
             setIsConnected(true);
             currentPortIndex = portIndex; // Remember successful port
             if (reconnectTimeoutRef.current) {
@@ -158,6 +263,16 @@ function App() {
                 console.log('  - No points in message, clearing radar display');
                 setPoints([]);
               }
+            } else if (message.type === 'distance_params') {
+              // Handle distance parameters (initial values for settings dialog)
+              console.log('  - Type: distance_params');
+              const params = message.data || message;
+              // Remove the 'type' field if it exists in params
+              const cleanParams = { ...params };
+              delete cleanParams.type;
+              delete cleanParams.data;
+              console.log('  - Distance params received:', cleanParams);
+              setDistanceParams(cleanParams);
             } else if (message.type === 'audio') {
               // Handle audio data (for sound amplitude simulator)
               console.log('  - Type: audio');
@@ -295,7 +410,9 @@ function App() {
             }
           };
 
+          // Set ref immediately when WebSocket is created (backup, but onopen also sets it)
           wsRef.current = ws;
+          console.log('[App] wsRef.current set when WebSocket created');
         } catch (error) {
           console.error(`Error creating WebSocket on port ${port}:`, error);
           setIsConnected(false);
@@ -420,8 +537,9 @@ function App() {
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         onSave={() => setIsSettingsOpen(false)}
-        wsRef={wsRef}
+        sendSettingsData={sendSettingsData}
         isConnected={isConnected}
+        distanceParams={distanceParams}
       />
     </div>
   );
