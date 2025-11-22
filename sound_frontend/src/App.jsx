@@ -360,7 +360,10 @@ function App() {
       <div className="flex-1 flex overflow-hidden min-h-0 relative z-10">
         {/* Left Panel - Points History */}
         <div className="w-80 border-r border-radar-grid/50 bg-radar-surface/30 backdrop-blur-md shadow-2xl">
-          <PointsHistory points={pointsHistory} />
+          <PointsHistory 
+            points={pointsHistory} 
+            onClear={() => setPointsHistory([])} 
+          />
         </div>
 
         {/* Center Panel - Radar and Sound Amplitude */}

@@ -1,7 +1,7 @@
 import React from 'react';
 import { getClassColor } from '../data/classColors';
 
-const PointsHistory = ({ points }) => {
+const PointsHistory = ({ points, onClear }) => {
   // Sort points by timestamp (newest first) to ensure latest points are at the top
   const sortedPoints = [...points].sort((a, b) => {
     const timeA = new Date(a.timestamp || 0).getTime();
@@ -9,14 +9,56 @@ const PointsHistory = ({ points }) => {
     return timeB - timeA; // Newest first
   });
 
+  const handleClear = () => {
+    if (onClear) {
+      onClear();
+    }
+  };
+
   return (
     <div className="h-full flex flex-col p-6 space-y-4 overflow-y-auto">
       {/* Header */}
       <div className="pb-4 border-b border-radar-grid/30">
-        <h2 className="text-xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-radar-primary to-radar-secondary">
-          Points History
-        </h2>
-        <p className="text-xs text-gray-500 mt-1">Detected Sound Sources</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-radar-primary to-radar-secondary">
+              Points History
+            </h2>
+            <p className="text-xs text-gray-500 mt-1">Detected Sound Sources</p>
+          </div>
+          {sortedPoints.length > 0 && (
+            <button
+              onClick={handleClear}
+              className="group relative px-4 py-2 bg-gradient-to-r from-red-500/20 to-orange-500/20 hover:from-red-500/30 hover:to-orange-500/30 border border-red-500/40 hover:border-red-500/60 rounded-lg transition-all duration-300 shadow-md hover:shadow-lg hover:shadow-red-500/20 flex items-center gap-2"
+            >
+              {/* Animated background glow */}
+              <div className="absolute inset-0 rounded-lg bg-gradient-to-r from-red-500/0 via-red-500/20 to-red-500/0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 blur-sm"></div>
+              
+              {/* Icon */}
+              <svg 
+                className="w-4 h-4 text-red-400 group-hover:text-red-300 transition-colors relative z-10" 
+                fill="none" 
+                viewBox="0 0 24 24" 
+                stroke="currentColor"
+              >
+                <path 
+                  strokeLinecap="round" 
+                  strokeLinejoin="round" 
+                  strokeWidth={2} 
+                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" 
+                />
+              </svg>
+              
+              {/* Text */}
+              <span className="text-sm font-semibold text-red-400 group-hover:text-red-300 transition-colors relative z-10">
+                Clear
+              </span>
+              
+              {/* Pulse effect */}
+              <div className="absolute inset-0 rounded-lg bg-red-500/20 animate-ping opacity-0 group-hover:opacity-100"></div>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Points List */}
