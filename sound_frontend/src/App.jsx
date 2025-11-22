@@ -421,6 +421,7 @@ function App() {
         onClose={() => setIsSettingsOpen(false)}
         onSave={() => setIsSettingsOpen(false)}
         wsRef={wsRef}
+        isConnected={isConnected}
       />
     </div>
   );

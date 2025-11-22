@@ -2,8 +2,20 @@ import React, { useState, useEffect } from 'react';
 import { CLASS_LIST } from '../data/classColors';
 import { getClassId } from '../data/classIds';
 
-const SettingsDialog = ({ isOpen, onClose, onSave, wsRef }) => {
+const SettingsDialog = ({ isOpen, onClose, onSave, wsRef, isConnected }) => {
   const [settings, setSettings] = useState({});
+
+  // Debug: Log wsRef when component mounts or dialog opens
+  useEffect(() => {
+    if (isOpen) {
+      console.log('[SettingsDialog] Dialog opened, wsRef:', wsRef);
+      console.log('[SettingsDialog] wsRef type:', typeof wsRef);
+      console.log('[SettingsDialog] wsRef.current:', wsRef?.current);
+      if (wsRef?.current) {
+        console.log('[SettingsDialog] WebSocket readyState:', wsRef.current.readyState);
+      }
+    }
+  }, [isOpen, wsRef]);
 
   // Initialize settings state when dialog opens
   useEffect(() => {
@@ -75,18 +87,35 @@ const SettingsDialog = ({ isOpen, onClose, onSave, wsRef }) => {
     // Check WebSocket connection - use the same WebSocket that receives points data
     console.log('[SettingsDialog] Checking WebSocket connection...');
     console.log('[SettingsDialog] wsRef:', wsRef);
+    console.log('[SettingsDialog] wsRef type:', typeof wsRef);
     console.log('[SettingsDialog] wsRef.current:', wsRef?.current);
+    console.log('[SettingsDialog] isConnected prop:', isConnected);
     
-    if (!wsRef || !wsRef.current) {
-      console.error('[SettingsDialog] WebSocket ref is not available');
-      alert('WebSocket is not initialized. Please ensure the connection is established.');
+    // Check if wsRef exists (it's a ref object, so it should always exist if passed)
+    if (!wsRef) {
+      console.error('[SettingsDialog] wsRef prop is not provided');
+      alert('WebSocket reference is not available. Please check the connection.');
       return;
     }
-
+    
+    // Check if wsRef.current exists (this is the actual WebSocket instance)
+    // This is the most important check - if this is null, the WebSocket isn't stored in the ref
+    if (!wsRef.current) {
+      console.error('[SettingsDialog] wsRef.current is null/undefined');
+      console.error('[SettingsDialog] This means the WebSocket instance is not stored in wsRef.current');
+      console.error('[SettingsDialog] isConnected state:', isConnected);
+      alert('WebSocket is not initialized. The WebSocket connection exists but is not accessible. Please check the console for details.');
+      return;
+    }
+    
+    // Get the WebSocket instance
     const ws = wsRef.current;
+    
+    // Check connection state
     const readyState = ws.readyState;
     console.log('[SettingsDialog] WebSocket readyState:', readyState);
-    console.log('[SettingsDialog] WebSocket.OPEN:', WebSocket.OPEN);
+    console.log('[SettingsDialog] WebSocket.OPEN constant:', WebSocket.OPEN);
+    console.log('[SettingsDialog] WebSocket instance:', ws);
 
     if (readyState !== WebSocket.OPEN) {
       const stateNames = {
