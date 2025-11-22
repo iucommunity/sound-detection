@@ -3,6 +3,7 @@ import Radar from './components/Radar';
 import ControlPanel from './components/ControlPanel';
 import PointsHistory from './components/PointsHistory';
 import SoundAmplitude from './components/SoundAmplitude';
+import SettingsDialog from './components/SettingsDialog';
 import { getClassColor } from './data/classColors';
 
 function App() {
@@ -14,6 +15,7 @@ function App() {
   const reconnectTimeoutRef = useRef(null);
   const [classColors, setClassColors] = useState({}); // Track actual colors used for each class
   const [audioData, setAudioData] = useState(null); // Audio data for sound amplitude simulator
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   // WebSocket connection
   useEffect(() => {
@@ -408,9 +410,18 @@ function App() {
             points={points}
             isRunning={isRunning}
             onToggleRunning={() => setIsRunning(!isRunning)}
+            onOpenSettings={() => setIsSettingsOpen(true)}
           />
         </div>
       </div>
+
+      {/* Settings Dialog - rendered at App level for full-screen overlay */}
+      <SettingsDialog
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        onSave={() => setIsSettingsOpen(false)}
+        wsRef={wsRef}
+      />
     </div>
   );
 }
